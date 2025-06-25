@@ -3,7 +3,7 @@
   "publisher": "Fitmavincent",
   "displayName": "jsonata-validator",
   "description": "A jsonata validator extention that can validate jsonata template",
-  "version": "0.0.4",
+  "version": "1.0.0",
   "pricing": "Free",
   "license": "MIT",
   "engines": {
