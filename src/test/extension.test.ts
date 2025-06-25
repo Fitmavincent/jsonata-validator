@@ -15,15 +15,20 @@ suite('JSONata Validator Extension Test Suite', () => {
 			await extension.activate();
 		}
 	});
-
 	test('Extension should be present', () => {
-		assert.ok(vscode.extensions.getExtension('undefined_publisher.jsonata-validator'));
+		// Extension might not have a publisher defined in development
+		const extension = vscode.extensions.getExtension('undefined_publisher.jsonata-validator') ||
+						  vscode.extensions.getExtension('jsonata-validator');
+		assert.ok(extension, 'Extension should be loaded');
 	});
 
 	test('Should register commands', async () => {
 		const commands = await vscode.commands.getCommands(true);
-		assert.ok(commands.includes('jsonata-validator.validateDocument'));
-		assert.ok(commands.includes('jsonata-validator.validateSelection'));
+		const hasValidateDocument = commands.includes('jsonata-validator.validateDocument');
+		const hasValidateSelection = commands.includes('jsonata-validator.validateSelection');
+
+		assert.ok(hasValidateDocument, 'validateDocument command should be registered');
+		assert.ok(hasValidateSelection, 'validateSelection command should be registered');
 	});
 
 	test('Should validate valid JSONata expression', async () => {
@@ -145,6 +150,58 @@ $.invalid..syntax`;
 
 		// Wait a bit for validation to complete
 		await new Promise(resolve => setTimeout(resolve, 100));
+
+		await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
+	});
+
+	test('Should provide detailed JSONata error information', async () => {
+		// Create a test document with a specific JSONata syntax error
+		const invalidJsonata = '$sum(unclosed';
+		const doc = await vscode.workspace.openTextDocument({
+			content: invalidJsonata,
+			language: 'jsonata'
+		});
+
+		const editor = await vscode.window.showTextDocument(doc);
+
+		// Execute validation command
+		await vscode.commands.executeCommand('jsonata-validator.validateDocument');
+
+		// Wait a bit for validation to complete
+		await new Promise(resolve => setTimeout(resolve, 200));
+
+		// Check that diagnostics include JSONata error codes and detailed messages
+		const diagnostics = vscode.languages.getDiagnostics(doc.uri);
+		assert.ok(diagnostics.length > 0, 'Should detect syntax error');
+
+		const diagnostic = diagnostics[0];
+		assert.strictEqual(diagnostic.severity, vscode.DiagnosticSeverity.Error);
+		assert.ok(diagnostic.message.includes('Expected'), 'Should include expected token information');
+
+		await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
+	});
+
+	test('Should handle multi-line JSONata expressions correctly', async () => {
+		const multiLineJsonata = `$.products[
+  price > 100
+].name`;
+
+		const doc = await vscode.workspace.openTextDocument({
+			content: multiLineJsonata,
+			language: 'jsonata'
+		});
+
+		const editor = await vscode.window.showTextDocument(doc);
+
+		// Execute validation command
+		await vscode.commands.executeCommand('jsonata-validator.validateDocument');
+
+		// Wait a bit for validation to complete
+		await new Promise(resolve => setTimeout(resolve, 200));
+
+		// Should be valid (no diagnostics)
+		const diagnostics = vscode.languages.getDiagnostics(doc.uri);
+		assert.strictEqual(diagnostics.length, 0, 'Valid multi-line JSONata should not have errors');
 
 		await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
 	});

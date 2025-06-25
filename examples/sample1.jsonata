@@ -1,0 +1,9 @@
+{
+    (
+        $function($input) {
+            $input ~> $map(function($item) {
+                $item * 2
+            })
+        }
+    )
+}

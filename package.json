@@ -1,12 +1,16 @@
 {
   "name": "jsonata-validator",
+  "publisher": "Fitmavincent",
   "displayName": "jsonata-validator",
   "description": "A jsonata validator extention that can validate jsonata template",
-  "version": "0.0.1",
+  "version": "0.0.4",
+  "pricing": "Free",
+  "license": "MIT",
   "engines": {
     "vscode": "^1.100.0"
   },
   "categories": [
+    "Extension Packs",
     "Linters",
     "Programming Languages"
   ],
@@ -15,12 +19,21 @@
     "onLanguage:json"
   ],
   "main": "./dist/extension.js",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Fitmavincent/jsonata-validator.git"
+  },
   "contributes": {
     "languages": [
       {
         "id": "jsonata",
-        "aliases": ["JSONata", "jsonata"],
-        "extensions": [".jsonata"],
+        "aliases": [
+          "JSONata",
+          "jsonata"
+        ],
+        "extensions": [
+          ".jsonata"
+        ],
         "configuration": "./language-configuration.json"
       }
     ],
@@ -74,6 +87,7 @@
   },
   "scripts": {
     "vscode:prepublish": "npm run package",
+    "vscode:uninstall": "node ./out/src/lifecycle",
     "compile": "npm run check-types && npm run lint && node esbuild.js",
     "watch": "npm-run-all -p watch:*",
     "watch:esbuild": "node esbuild.js --watch",

@@ -1,0 +1,14 @@
+// Test 1: Double dot error
+$.firstName..invalid
+
+// Test 2: Missing bracket
+$.products[price > 100
+
+// Test 3: Missing parenthesis
+$count(items
+
+// Test 4: Valid expression
+$.products[price > 100]
+
+// Test 5: Complex error
+$.orders[status = "shipped"].total..invalid

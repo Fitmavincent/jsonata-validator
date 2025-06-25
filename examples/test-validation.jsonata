@@ -1,0 +1,26 @@
+// Test file for improved JSONata validation
+
+// Valid single-line expressions
+$.firstName
+$.address.city
+$.products[price > 100]
+$.orders[status = "shipped"].total ~> $sum()
+
+// Valid multi-line expression
+$.products[
+  price > 100 and
+  category = "electronics"
+].{
+  "name": name,
+  "price": price
+}
+
+// Invalid expressions that should show precise error locations
+$.firstName..invalid
+$.products[price > 100  // Missing closing bracket
+$.bad..syntax
+$count(invalid syntax here  // Missing closing parenthesis
+$.{unclosed: "object"  // Missing closing brace
+
+// Expression with syntax error at specific position
+$.products[category =   // Missing value and closing bracket
