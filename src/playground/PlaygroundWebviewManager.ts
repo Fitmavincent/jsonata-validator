@@ -39,18 +39,10 @@ export class PlaygroundWebviewManager {
     }
 
     /**
-     * Handles messages from the webview
+     * Handles messages from the webview (now only for results panel)
      */
     public handleMessage(message: WebviewMessage): void {
         switch (message.type) {
-            case 'updateJsonInput':
-                this.state.jsonInput = message.data;
-                this.evaluateExpression();
-                break;
-            case 'updateJsonataExpression':
-                this.state.jsonataExpression = message.data;
-                this.evaluateExpression();
-                break;
             case 'requestState':
                 this.sendStateToWebview();
                 break;
@@ -65,19 +57,33 @@ export class PlaygroundWebviewManager {
     }
 
     /**
-     * Sets the JSONata expression
+     * Updates the JSON input and triggers evaluation
      */
-    public setJsonataExpression(expression: string): void {
-        this.state.jsonataExpression = expression;
+    public updateJsonInput(jsonData: string): void {
+        this.state.jsonInput = jsonData;
         this.evaluateExpression();
-        this.sendStateToWebview();
     }
 
     /**
-     * Sets the JSON input data
+     * Updates the JSONata expression and triggers evaluation
+     */
+    public updateJsonataExpression(expression: string): void {
+        this.state.jsonataExpression = expression;
+        this.evaluateExpression();
+    }
+
+    /**
+     * Sets the JSONata expression (legacy method for compatibility)
+     */
+    public setJsonataExpression(expression: string): void {
+        this.updateJsonataExpression(expression);
+    }
+
+    /**
+     * Sets the JSON input data (legacy method for compatibility)
      */
     public setJsonInput(jsonData: string): void {
-        this.state.jsonInput = jsonData;
+        this.updateJsonInput(jsonData);
         this.evaluateExpression();
         this.sendStateToWebview();
     }
@@ -149,9 +155,7 @@ export class PlaygroundWebviewManager {
             type: 'updateState',
             data: this.state
         });
-    }
-
-    private getWebviewContent(): string {
+    }    private getWebviewContent(): string {
         const nonce = this.generateNonce();
 
         return `<!DOCTYPE html>
@@ -160,7 +164,7 @@ export class PlaygroundWebviewManager {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${this.webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
-    <title>JSONata Playground</title>
+    <title>JSONata Results</title>
     <style>
         body {
             margin: 0;
@@ -179,7 +183,7 @@ export class PlaygroundWebviewManager {
             border-bottom: 1px solid var(--vscode-panel-border);
             display: flex;
             align-items: center;
-            gap: 10px;
+            justify-content: space-between;
         }
 
         .header h1 {
@@ -188,25 +192,24 @@ export class PlaygroundWebviewManager {
             font-weight: 600;
         }
 
-        .container {
-            flex: 1;
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            grid-template-rows: 1fr 1fr;
-            gap: 1px;
-            background-color: var(--vscode-panel-border);
-            min-height: 0;
+        .info {
+            font-size: 12px;
+            color: var(--vscode-descriptionForeground);
         }
 
-        .panel {
-            background-color: var(--vscode-editor-background);
+        .container {
+            flex: 1;
             display: flex;
             flex-direction: column;
             min-height: 0;
         }
 
-        .panel.input {
-            grid-row: 1 / 3;
+        .result-panel {
+            flex: 1;
+            background-color: var(--vscode-editor-background);
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
         }
 
         .panel-header {
@@ -223,24 +226,7 @@ export class PlaygroundWebviewManager {
             flex: 1;
             position: relative;
             min-height: 0;
-        }
-
-        .editor {
-            width: 100%;
-            height: 100%;
-            border: none;
-            outline: none;
-            resize: none;
-            font-family: var(--vscode-editor-font-family);
-            font-size: var(--vscode-editor-font-size);
-            background-color: var(--vscode-editor-background);
-            color: var(--vscode-editor-foreground);
-            padding: 8px;
-            box-sizing: border-box;
-        }
-
-        .result-panel {
-            position: relative;
+            overflow: hidden;
         }
 
         .result-content {
@@ -252,26 +238,28 @@ export class PlaygroundWebviewManager {
             font-size: var(--vscode-editor-font-size);
             background-color: var(--vscode-editor-background);
             color: var(--vscode-editor-foreground);
-            padding: 8px;
+            padding: 12px;
             box-sizing: border-box;
             overflow: auto;
             white-space: pre-wrap;
             word-wrap: break-word;
+            line-height: 1.4;
         }
 
         .error {
             color: var(--vscode-errorForeground);
             background-color: var(--vscode-inputValidation-errorBackground);
             border: 1px solid var(--vscode-inputValidation-errorBorder);
-            padding: 8px;
-            margin: 8px;
-            border-radius: 3px;
+            padding: 12px;
+            margin: 12px;
+            border-radius: 4px;
             font-family: var(--vscode-editor-font-family);
-            font-size: 12px;
+            font-size: 13px;
+            line-height: 1.4;
         }
 
         .status-bar {
-            padding: 4px 12px;
+            padding: 6px 12px;
             background-color: var(--vscode-statusBar-background);
             color: var(--vscode-statusBar-foreground);
             font-size: 11px;
@@ -284,7 +272,7 @@ export class PlaygroundWebviewManager {
         .status-item {
             display: flex;
             align-items: center;
-            gap: 4px;
+            gap: 6px;
         }
 
         .status-success {
@@ -294,30 +282,22 @@ export class PlaygroundWebviewManager {
         .status-error {
             color: var(--vscode-errorForeground);
         }
+
+        .evaluation-info {
+            color: var(--vscode-descriptionForeground);
+            font-size: 11px;
+        }
     </style>
 </head>
 <body>
     <div class="header">
-        <h1>🧪 JSONata Playground</h1>
+        <h1>📊 JSONata Results</h1>
+        <div class="info">Live evaluation • AI tools available in input panels</div>
     </div>
 
     <div class="container">
-        <div class="panel input">
-            <div class="panel-header">JSON Input</div>
-            <div class="panel-content">
-                <textarea id="jsonInput" class="editor" placeholder="Enter your JSON data here..."></textarea>
-            </div>
-        </div>
-
-        <div class="panel">
-            <div class="panel-header">JSONata Expression</div>
-            <div class="panel-content">
-                <textarea id="jsonataExpression" class="editor" placeholder="Enter your JSONata expression here..."></textarea>
-            </div>
-        </div>
-
-        <div class="panel result-panel">
-            <div class="panel-header">Result</div>
+        <div class="result-panel">
+            <div class="panel-header">Live Evaluation Result</div>
             <div class="panel-content">
                 <div id="result" class="result-content"></div>
                 <div id="error" class="error" style="display: none;"></div>
@@ -330,7 +310,7 @@ export class PlaygroundWebviewManager {
             <span id="statusText">Ready</span>
         </div>
         <div class="status-item">
-            <span>JSONata Playground</span>
+            <span class="evaluation-info">Updates automatically on input change</span>
         </div>
     </div>
 
@@ -338,18 +318,9 @@ export class PlaygroundWebviewManager {
         (function() {
             const vscode = acquireVsCodeApi();
 
-            const jsonInput = document.getElementById('jsonInput');
-            const jsonataExpression = document.getElementById('jsonataExpression');
             const result = document.getElementById('result');
             const error = document.getElementById('error');
             const statusText = document.getElementById('statusText');
-
-            let debounceTimeout;
-
-            function debounce(func, delay) {
-                clearTimeout(debounceTimeout);
-                debounceTimeout = setTimeout(func, delay);
-            }
 
             function updateStatus(text, isError = false) {
                 statusText.textContent = text;
@@ -361,7 +332,7 @@ export class PlaygroundWebviewManager {
                     error.textContent = state.error;
                     error.style.display = 'block';
                     result.textContent = '';
-                    updateStatus('Error', true);
+                    updateStatus('Error in evaluation', true);
                 } else {
                     error.style.display = 'none';
                     result.textContent = state.result;
@@ -369,34 +340,12 @@ export class PlaygroundWebviewManager {
                 }
             }
 
-            // Set up event listeners
-            jsonInput.addEventListener('input', () => {
-                debounce(() => {
-                    vscode.postMessage({
-                        type: 'updateJsonInput',
-                        data: jsonInput.value
-                    });
-                }, 300);
-            });
-
-            jsonataExpression.addEventListener('input', () => {
-                debounce(() => {
-                    vscode.postMessage({
-                        type: 'updateJsonataExpression',
-                        data: jsonataExpression.value
-                    });
-                }, 300);
-            });
-
             // Handle messages from extension
             window.addEventListener('message', event => {
                 const message = event.data;
                 switch (message.type) {
                     case 'updateState':
-                        const state = message.data;
-                        jsonInput.value = state.jsonInput;
-                        jsonataExpression.value = state.jsonataExpression;
-                        handleStateUpdate(state);
+                        handleStateUpdate(message.data);
                         break;
                 }
             });

@@ -47,15 +47,15 @@ export function activate(context: vscode.ExtensionContext) {
 		playgroundProvider.openPlayground();
 	});
 
-	const openPlaygroundWithSelectionCommand = vscode.commands.registerCommand('jsonata-validator.openPlaygroundWithSelection', () => {
+	const openPlaygroundWithSelectionCommand = vscode.commands.registerCommand('jsonata-validator.openPlaygroundWithSelection', async () => {
 		const editor = vscode.window.activeTextEditor;
 		if (editor && editor.selection && !editor.selection.isEmpty) {
 			const selectedText = editor.document.getText(editor.selection);
 			playgroundProvider.openPlayground();
 			// Set the selected text as the JSONata expression
-			setTimeout(() => {
-				playgroundProvider.setJsonataExpression(selectedText);
-			}, 100); // Small delay to ensure webview is ready
+			setTimeout(async () => {
+				await playgroundProvider.setJsonataExpression(selectedText);
+			}, 500); // Longer delay to ensure editors are ready
 		} else {
 			playgroundProvider.openPlayground();
 		}

@@ -1,20 +1,12 @@
-// JSONata Playground Demo
-// This file demonstrates how to use the JSONata playground feature
+/* JSONata Playground Demo - Simultaneous Display */
+/* All panels visible: JSON Input (left), Expression (top right), Results (bottom right) */
+/* Try changing this expression and see instant results */
 
-// Simple field selection
-example.name
-
-// Filtering with conditions
-products[price > 100]
-
-// Complex transformations
-{
-  "total": $sum(products.price),
-  "count": $count(products),
-  "expensive": products[price > 100].{
-    "name": name,
-    "discounted": price * 0.9
-  }
+products[price > 100]{
+  name: name,
+  discounted: price * 0.8,
+  category: category,
+  savings: price - (price * 0.8)
 }
 
 // Array manipulation

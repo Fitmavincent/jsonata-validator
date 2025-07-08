@@ -1,0 +1,3 @@
+// Test JSONata expression for the playground
+// Select this line and use "Open JSONata Playground with Selection"
+products[price > 100].{name: name, discounted: price * 0.9}

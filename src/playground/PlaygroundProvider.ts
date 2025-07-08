@@ -58,18 +58,18 @@ export class PlaygroundProvider {
     /**
      * Sets the JSONata expression in the playground
      */
-    public setJsonataExpression(expression: string): void {
+    public async setJsonataExpression(expression: string): Promise<void> {
         if (this.currentPanel) {
-            this.currentPanel.setJsonataExpression(expression);
+            await this.currentPanel.setJsonataExpression(expression);
         }
     }
 
     /**
      * Sets the JSON input data in the playground
      */
-    public setJsonInput(jsonData: string): void {
+    public async setJsonInput(jsonData: string): Promise<void> {
         if (this.currentPanel) {
-            this.currentPanel.setJsonInput(jsonData);
+            await this.currentPanel.setJsonInput(jsonData);
         }
     }
 }
