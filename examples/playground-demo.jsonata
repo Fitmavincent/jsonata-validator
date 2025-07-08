@@ -1,0 +1,24 @@
+// JSONata Playground Demo
+// This file demonstrates how to use the JSONata playground feature
+
+// Simple field selection
+example.name
+
+// Filtering with conditions
+products[price > 100]
+
+// Complex transformations
+{
+  "total": $sum(products.price),
+  "count": $count(products),
+  "expensive": products[price > 100].{
+    "name": name,
+    "discounted": price * 0.9
+  }
+}
+
+// Array manipulation
+products.price ~> $sort() ~> $reverse()
+
+// String operations
+$uppercase($substring(name, 0, 3)) & " - " & $string(price)

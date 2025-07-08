@@ -1,10 +1,11 @@
 # JSONata Validator Extension
 
-A lightweight VS Code extension for validating JSONata templates without requiring a language server. This extension provides real-time validation of JSONata expressions using the official JSONata library.
+A lightweight VS Code extension for validating JSONata templates and providing an interactive playground for testing expressions. This extension provides real-time validation of JSONata expressions using the official JSONata library.
 
 ## Features
 
 - **Real-time validation**: Validates JSONata expressions as you type
+- **Interactive playground**: Test JSONata expressions with live results (similar to try.jsonata.org)
 - **Precise error positioning**: Highlights exact error locations with character-level accuracy
 - **Detailed error reporting**: Shows exact error positions with JSONata error codes (e.g., S0201, S0203)
 - **Enhanced error messages**: Includes expected vs. actual tokens for better debugging
@@ -13,6 +14,23 @@ A lightweight VS Code extension for validating JSONata templates without requiri
 - **Context menu commands**: Right-click to validate documents or selections
 - **Configurable**: Customize validation behavior through VS Code settings
 - **Lightweight**: No language server required - everything runs locally using the official JSONata library
+
+## JSONata Playground
+
+The extension includes an interactive playground for testing JSONata expressions:
+
+### Features
+- **Three-panel layout**: JSON Input (left), JSONata Expression (top-right), Results (bottom-right)
+- **Real-time evaluation**: See results as you type with error handling
+- **Runtime error detection**: Catches both compilation and evaluation errors
+- **VS Code integration**: Full editor experience with syntax highlighting
+
+### How to Use
+1. **Command Palette**: `Ctrl+Shift+P` → "Open JSONata Playground"
+2. **With Selection**: Select JSONata code → "Open JSONata Playground with Selection"
+3. **Context Menu**: Right-click in `.jsonata` files
+
+See [PLAYGROUND.md](./PLAYGROUND.md) for detailed playground documentation.
 
 ## Validation Features
 
@@ -49,6 +67,8 @@ The extension provides comprehensive JSONata validation by leveraging the offici
 
 - **Validate JSONata Document**: Validates the entire active document
 - **Validate JSONata Selection**: Validates only the selected text
+- **Open JSONata Playground**: Opens the interactive playground
+- **Open JSONata Playground with Selection**: Opens playground with selected text as expression
 
 Access these commands via:
 - Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`)

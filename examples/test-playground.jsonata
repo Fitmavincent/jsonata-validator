@@ -1,0 +1,9 @@
+// Test file to verify the playground feature works
+// You can use this to test the JSONata playground
+
+// Select this expression and use "Open JSONata Playground with Selection"
+products[price > 100].{
+  "name": name,
+  "discounted": price * 0.9,
+  "category": category
+}
