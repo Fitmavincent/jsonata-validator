@@ -1,7 +1,6 @@
 import * as vscode from 'vscode';
 import jsonata from 'jsonata';
-import { isJsonataFile } from '../utils/jsonataUtils';
-import { extractJsonataExpressionsFromPureJsonata, extractJsonataExpressionsFromLine } from './expressionExtractor';
+import { extractJsonataExpressionsFromPureJsonata } from './expressionExtractor';
 
 /**
  * Validation service for JSONata expressions
@@ -10,9 +9,23 @@ export class ValidationService {
     constructor(private diagnosticCollection: vscode.DiagnosticCollection) {}
 
     /**
+     * Check if a document is a JSONata file
+     */
+    private isJsonataFile(document: vscode.TextDocument): boolean {
+        return document.languageId === 'jsonata' || document.fileName.endsWith('.jsonata');
+    }
+
+    /**
      * Validate an entire document
      */
     public validateDocument(document: vscode.TextDocument): void {
+        // Only validate .jsonata files
+        if (!this.isJsonataFile(document)) {
+            // Clear any existing diagnostics for non-jsonata files
+            this.diagnosticCollection.set(document.uri, []);
+            return;
+        }
+
         const text = document.getText();
         const diagnostics = this.validateJsonataText(text, document);
         this.diagnosticCollection.set(document.uri, diagnostics);
@@ -22,6 +35,12 @@ export class ValidationService {
      * Validate a selection within a document
      */
     public validateSelection(document: vscode.TextDocument, selectedText: string, selection: vscode.Selection): void {
+        // Only validate selections in JSONata files
+        if (!this.isJsonataFile(document)) {
+            vscode.window.showWarningMessage('Selection validation is only available for .jsonata files');
+            return;
+        }
+
         const diagnostics = this.validateJsonataText(selectedText, document, selection.start);
 
         // Show results in a message
@@ -41,54 +60,28 @@ export class ValidationService {
         const config = vscode.workspace.getConfiguration('jsonataValidator');
         const maxProblems = config.get<number>('maxNumberOfProblems', 100);
 
-        // Handle different file types differently
-        if (document.languageId === 'jsonata' || document.fileName.endsWith('.jsonata')) {
-            // For pure JSONata files, validate the entire content as a single expression
-            const expressions = extractJsonataExpressionsFromPureJsonata(text);
+        // Only validate JSONata files
+        if (!this.isJsonataFile(document)) {
+            return diagnostics;
+        }
 
-            for (const expression of expressions) {
-                if (diagnostics.length >= maxProblems) {
-                    break;
-                }
+        // For JSONata files, validate the entire content as JSONata expressions
+        const expressions = extractJsonataExpressionsFromPureJsonata(text);
 
-                const expressionDiagnostics = this.validateSingleJsonataExpression(
-                    expression.expression,
-                    document,
-                    expression.line,
-                    expression.startPos,
-                    expression.endPos,
-                    offset
-                );
-                diagnostics.push(...expressionDiagnostics);
+        for (const expression of expressions) {
+            if (diagnostics.length >= maxProblems) {
+                break;
             }
-        } else {
-            // For JSON files or other formats, extract JSONata from strings
-            const lines = text.split('\n');
 
-            for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
-                if (diagnostics.length >= maxProblems) {
-                    break;
-                }
-
-                const line = lines[lineIndex];
-                const expressions = extractJsonataExpressionsFromLine(line);
-
-                for (const expression of expressions) {
-                    if (diagnostics.length >= maxProblems) {
-                        break;
-                    }
-
-                    const expressionDiagnostics = this.validateSingleJsonataExpression(
-                        expression.expression,
-                        document,
-                        lineIndex,
-                        expression.startPos,
-                        expression.endPos,
-                        offset
-                    );
-                    diagnostics.push(...expressionDiagnostics);
-                }
-            }
+            const expressionDiagnostics = this.validateSingleJsonataExpression(
+                expression.expression,
+                document,
+                expression.line,
+                expression.startPos,
+                expression.endPos,
+                offset
+            );
+            diagnostics.push(...expressionDiagnostics);
         }
 
         return diagnostics;
@@ -266,8 +259,15 @@ export class ValidationService {
                         // For end-of-expression errors
                         if (charPositionInLine >= lineLength) {
                             // Error is at the end of line
-                            targetStartChar = Math.max(0, lineLength - 1);
-                            targetEndChar = lineLength;
+                            if (lineLength === 0) {
+                                // Empty line
+                                targetStartChar = 0;
+                                targetEndChar = 0;
+                            } else {
+                                // Position at the last character of the line
+                                targetStartChar = lineLength - 1;
+                                targetEndChar = lineLength;
+                            }
                         } else {
                             targetEndChar = targetStartChar + 1;
                         }
@@ -291,11 +291,23 @@ export class ValidationService {
             targetLine = startLineIndex + lastLineIndex;
 
             if (lastLineIndex === 0) {
-                targetStartChar = expressionStartPos + lastLine.length - 1;
-                targetEndChar = expressionStartPos + lastLine.length;
+                // Single line expression
+                if (lastLine.length === 0) {
+                    targetStartChar = expressionStartPos;
+                    targetEndChar = expressionStartPos;
+                } else {
+                    targetStartChar = expressionStartPos + lastLine.length - 1;
+                    targetEndChar = expressionStartPos + lastLine.length;
+                }
             } else {
-                targetStartChar = Math.max(0, lastLine.length - 1);
-                targetEndChar = lastLine.length;
+                // Multi-line expression
+                if (lastLine.length === 0) {
+                    targetStartChar = 0;
+                    targetEndChar = 0;
+                } else {
+                    targetStartChar = lastLine.length - 1;
+                    targetEndChar = lastLine.length;
+                }
             }
         }
 
@@ -398,14 +410,22 @@ export class ValidationService {
         startCharacter = Math.max(0, Math.min(startCharacter, lineLength));
         endCharacter = Math.max(startCharacter, Math.min(endCharacter, lineLength));
 
-        // If end position would be at or beyond line end, extend to include the last character
-        if (endCharacter >= lineLength && startCharacter < lineLength) {
+        // Handle edge cases for positioning
+        if (startCharacter >= lineLength && lineLength > 0) {
+            // Error is beyond the line content, position at the last character
+            startCharacter = lineLength - 1;
             endCharacter = lineLength;
-        } else if (startCharacter >= lineLength) {
-            // Error is beyond the line, position at the end
-            startCharacter = Math.max(0, lineLength - 1);
+        } else if (startCharacter >= lineLength && lineLength === 0) {
+            // Empty line case
+            startCharacter = 0;
+            endCharacter = 0;
+        } else if (endCharacter > lineLength) {
+            // End position extends beyond line, clamp to line end
             endCharacter = lineLength;
         }
+
+        // Ensure endCharacter is never less than startCharacter
+        endCharacter = Math.max(startCharacter, endCharacter);
 
         return new vscode.Range(
             new vscode.Position(actualLineIndex, startCharacter),
