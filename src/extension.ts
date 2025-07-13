@@ -61,6 +61,22 @@ export function activate(context: vscode.ExtensionContext) {
 		}
 	});
 
+	const populatePlaygroundFromActiveEditor = vscode.commands.registerCommand('jsonata-validator.populatePlaygroundFromActiveEditor', async () => {
+		const playground = playgroundProvider.getCurrentPlayground();
+		if (playground) {
+			await playground.populateFromActiveEditor();
+		} else {
+			vscode.window.showInformationMessage('No playground is currently open. Opening playground...');
+			playgroundProvider.openPlayground();
+			setTimeout(async () => {
+				const newPlayground = playgroundProvider.getCurrentPlayground();
+				if (newPlayground) {
+					await newPlayground.populateFromActiveEditor();
+				}
+			}, 1000);
+		}
+	});
+
 	// Register event listeners
 	const onDidChangeTextDocument = vscode.workspace.onDidChangeTextDocument(event => {
 		const config = vscode.workspace.getConfiguration('jsonataValidator');
@@ -97,6 +113,7 @@ export function activate(context: vscode.ExtensionContext) {
 		validateSelectionCommand,
 		openPlaygroundCommand,
 		openPlaygroundWithSelectionCommand,
+		populatePlaygroundFromActiveEditor,
 		onDidChangeTextDocument,
 		onDidSaveTextDocument,
 		onDidOpenTextDocument,

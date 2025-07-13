@@ -3,7 +3,7 @@
   "publisher": "Fitmavincent",
   "displayName": "jsonata-validator",
   "description": "A jsonata validator extention that can validate jsonata template",
-  "version": "1.1.6",
+  "version": "1.2.7",
   "pricing": "Free",
   "license": "MIT",
   "engines": {
@@ -58,6 +58,12 @@
         "title": "Open JSONata Playground with Selection",
         "category": "JSONata",
         "icon": "$(play)"
+      },
+      {
+        "command": "jsonata-validator.populatePlaygroundFromActiveEditor",
+        "title": "Populate Playground from Active Editor",
+        "category": "JSONata",
+        "icon": "$(arrow-right)"
       }
     ],
     "menus": {
@@ -81,6 +87,10 @@
           "when": "editorHasSelection && resourceExtname == .jsonata",
           "command": "jsonata-validator.openPlaygroundWithSelection",
           "group": "jsonata"
+        },
+        {
+          "command": "jsonata-validator.populatePlaygroundFromActiveEditor",
+          "group": "jsonata"
         }
       ],
       "commandPalette": [
@@ -90,6 +100,9 @@
         {
           "command": "jsonata-validator.openPlaygroundWithSelection",
           "when": "editorHasSelection"
+        },
+        {
+          "command": "jsonata-validator.populatePlaygroundFromActiveEditor"
         }
       ]
     },

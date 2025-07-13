@@ -56,6 +56,13 @@ export class PlaygroundProvider {
     }
 
     /**
+     * Gets the current playground panel instance
+     */
+    public getCurrentPlayground(): PlaygroundPanel | undefined {
+        return this.currentPanel;
+    }
+
+    /**
      * Sets the JSONata expression in the playground
      */
     public async setJsonataExpression(expression: string): Promise<void> {

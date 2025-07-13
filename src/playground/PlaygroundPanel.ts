@@ -77,9 +77,12 @@ export class PlaygroundPanel {
                 await this.ensureProperLayout();
             }, 300);
 
-            // Step 6: Trigger initial evaluation
+            // Step 6: Trigger initial evaluation and update available editors
             this.webviewManager.updateJsonInput(defaultJsonInput);
             this.webviewManager.updateJsonataExpression(defaultJsonataExpression);
+
+            // Initialize available editors list
+            this.webviewManager.updateAvailableEditors();
 
         } catch (error) {
             console.error('Failed to initialize playground:', error);
@@ -106,6 +109,29 @@ export class PlaygroundPanel {
             null,
             this.disposables
         );
+
+        // Listen for editor changes to update available editors list
+        const editorChangeDisposable = vscode.window.onDidChangeVisibleTextEditors(() => {
+            this.webviewManager.updateAvailableEditors();
+        });
+        this.disposables.push(editorChangeDisposable);
+
+        // Listen for when editors are opened/closed
+        const editorOpenDisposable = vscode.workspace.onDidOpenTextDocument(() => {
+            // Small delay to ensure editor is fully opened
+            setTimeout(() => {
+                this.webviewManager.updateAvailableEditors();
+            }, 100);
+        });
+        this.disposables.push(editorOpenDisposable);
+
+        const editorCloseDisposable = vscode.workspace.onDidCloseTextDocument(() => {
+            // Small delay to ensure editor is fully closed
+            setTimeout(() => {
+                this.webviewManager.updateAvailableEditors();
+            }, 100);
+        });
+        this.disposables.push(editorCloseDisposable);
     }
 
     /**
@@ -159,6 +185,36 @@ export class PlaygroundPanel {
         } else {
             // Store for when editor is ready
             this.webviewManager.setJsonInput(jsonData);
+        }
+    }
+
+    /**
+     * Populates the playground with content from the currently active editor
+     */
+    public async populateFromActiveEditor(): Promise<void> {
+        const activeEditor = vscode.window.activeTextEditor;
+        if (activeEditor) {
+            const content = activeEditor.document.getText();
+            const language = activeEditor.document.languageId;
+
+            if (language === 'json') {
+                await this.setJsonInput(content);
+                vscode.window.showInformationMessage('JSON content loaded as input data');
+            } else if (language === 'jsonata') {
+                await this.setJsonataExpression(content);
+                vscode.window.showInformationMessage('JSONata expression loaded');
+            } else {
+                // For other file types, try to use as JSON input if it's valid JSON
+                try {
+                    JSON.parse(content);
+                    await this.setJsonInput(content);
+                    vscode.window.showInformationMessage('Content loaded as JSON input data');
+                } catch {
+                    // If not valid JSON, use as JSONata expression
+                    await this.setJsonataExpression(content);
+                    vscode.window.showInformationMessage('Content loaded as JSONata expression');
+                }
+            }
         }
     }
 
