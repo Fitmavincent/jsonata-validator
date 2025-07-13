@@ -109,29 +109,6 @@ export class PlaygroundPanel {
             null,
             this.disposables
         );
-
-        // Listen for editor changes to update available editors list
-        const editorChangeDisposable = vscode.window.onDidChangeVisibleTextEditors(() => {
-            this.webviewManager.updateAvailableEditors();
-        });
-        this.disposables.push(editorChangeDisposable);
-
-        // Listen for when editors are opened/closed
-        const editorOpenDisposable = vscode.workspace.onDidOpenTextDocument(() => {
-            // Small delay to ensure editor is fully opened
-            setTimeout(() => {
-                this.webviewManager.updateAvailableEditors();
-            }, 100);
-        });
-        this.disposables.push(editorOpenDisposable);
-
-        const editorCloseDisposable = vscode.workspace.onDidCloseTextDocument(() => {
-            // Small delay to ensure editor is fully closed
-            setTimeout(() => {
-                this.webviewManager.updateAvailableEditors();
-            }, 100);
-        });
-        this.disposables.push(editorCloseDisposable);
     }
 
     /**

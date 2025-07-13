@@ -1,6 +1,11 @@
 # JSONata Validator Extension
 
-A lightweight VS Code extension for validating JSONata templates and providing an interactive playground for testing expressions. This extension provides real-time validation of JSONata expressions using the official JSONata library.
+A l### New: Editor Tab Selection
+- Select any open editor tab as the JSON input source
+- Select any open editor tab as the JSONata expression source
+- Changes in selected files automatically update the playground results
+- Only shows files that are actually open as tabs in VS Code
+- Perfect for testing expressions against multiple data setseight VS Code extension for validating JSONata templates and providing an interactive playground for testing expressions. This extension provides real-time validation of JSONata expressions using the official JSONata library.
 
 ## Features
 
@@ -24,13 +29,23 @@ The extension includes an interactive playground for testing JSONata expressions
 - **Real-time evaluation**: See results as you type with error handling
 - **Runtime error detection**: Catches both compilation and evaluation errors
 - **VS Code integration**: Full editor experience with syntax highlighting
+- **Editor tab selection**: Select any open editor tab as input source for JSON data or JSONata expressions
+- **Live updates**: Automatically updates results when you edit selected source files
+- **Multiple data sources**: Quickly switch between different JSON files or JSONata templates
 
 ### How to Use
 1. **Command Palette**: `Ctrl+Shift+P` → "Open JSONata Playground"
 2. **With Selection**: Select JSONata code → "Open JSONata Playground with Selection"
 3. **Context Menu**: Right-click in `.jsonata` files
+4. **From Active Editor**: Use "Populate Playground from Active Editor" to automatically detect and load content
 
-See [PLAYGROUND.md](./PLAYGROUND.md) for detailed playground documentation.
+### New: Editor Tab Selection
+- Select any open editor tab as the JSON input source
+- Select any open editor tab as the JSONata expression source
+- Changes in selected files automatically update the playground results
+- Perfect for testing expressions against multiple data sets
+
+See [PLAYGROUND.md](./PLAYGROUND.md) for detailed playground documentation and [EDITOR-TAB-SELECTION.md](./EDITOR-TAB-SELECTION.md) for the new editor selection feature.
 
 ## Validation Features
 

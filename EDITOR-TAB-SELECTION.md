@@ -1,6 +1,16 @@
 # JSONata Playground - Editor Tab Selection Feature
 
-This feature allows you to select any open editor tab as the input source for JSON data or JSONata expressions in the playground, enabling dynamic live evaluation as you edit your source files.
+Thi## Tips
+
+- **Refresh button**: Click the 🔄 button to refresh the list of available editors
+- **File indicators**:
+  - File language type is shown in badges (e.g., `json`, `jsonata`)
+  - Modified files are marked with `●`
+- **Automatic updates**: The editor list automatically updates when you open or close tabs
+- **Tab-based selection**: Only shows files that are actually open as editor tabs in VS Code
+- **Fallback**: If no editor is selected, the playground uses its internal default editors
+- **Multiple files**: You can quickly switch between different JSON data sets or JSONata expressions by changing the selected editor
+- **Auto-reset**: If you close a selected editor tab, the playground automatically resets to default content allows you to select any open editor tab as the input source for JSON data or JSONata expressions in the playground, enabling dynamic live evaluation as you edit your source files.
 
 ## How to Use
 

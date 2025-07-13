@@ -1,0 +1,41 @@
+{
+  "users": [
+    {
+      "id": 1,
+      "name": "Alice Johnson",
+      "email": "alice@example.com",
+      "age": 28,
+      "department": "Engineering",
+      "active": true
+    },
+    {
+      "id": 2,
+      "name": "Bob Smith",
+      "email": "bob@example.com",
+      "age": 34,
+      "department": "Marketing",
+      "active": false
+    },
+    {
+      "id": 3,
+      "name": "Carol Davis",
+      "email": "carol@example.com",
+      "age": 25,
+      "department": "Engineering",
+      "active": true
+    },
+    {
+      "id": 4,
+      "name": "David Wilson",
+      "email": "david@example.com",
+      "age": 41,
+      "department": "Sales",
+      "active": true
+    }
+  ],
+  "departments": {
+    "Engineering": {"budget": 500000, "head": "Alice Johnson"},
+    "Marketing": {"budget": 200000, "head": "Bob Smith"},
+    "Sales": {"budget": 300000, "head": "David Wilson"}
+  }
+}

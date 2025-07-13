@@ -1,0 +1,1 @@
+$sum(users[department="Engineering"].age) / $count(users[department="Engineering"])

@@ -571,89 +571,94 @@ export class PlaygroundWebviewManager {
     }
 
     /**
-     * Gets the list of currently open editors
+     * Gets the list of currently open editor tabs
      */
     private getOpenEditors(): EditorInfo[] {
         const openEditors: EditorInfo[] = [];
 
-        // Get all visible text editors
-        const visibleEditors = vscode.window.visibleTextEditors.filter(editor => {
-            // Include saved files and untitled files that could be relevant
-            return !editor.document.isUntitled ||
-                   ['json', 'jsonata', 'javascript', 'typescript', 'plaintext'].includes(editor.document.languageId);
-        });
+        // Get all tab groups and their tabs
+        const tabGroups = vscode.window.tabGroups.all;
 
-        // Add visible editors
-        visibleEditors.forEach(editor => {
-            let fileName: string;
-            if (editor.document.isUntitled) {
-                fileName = `Untitled-${editor.document.languageId}`;
-            } else {
-                fileName = vscode.workspace.asRelativePath(editor.document.fileName);
-                // If the relative path is the same as the full path, show just the filename
-                if (fileName === editor.document.fileName) {
-                    fileName = editor.document.fileName.split(/[/\\]/).pop() || fileName;
+        tabGroups.forEach(tabGroup => {
+            tabGroup.tabs.forEach(tab => {
+                // Only include text document tabs
+                if (tab.input instanceof vscode.TabInputText) {
+                    const document = tab.input.uri;
+
+                    // Try to find the corresponding text document
+                    const textDoc = vscode.workspace.textDocuments.find(doc =>
+                        doc.uri.toString() === document.toString()
+                    );
+
+                    if (textDoc) {
+                        let fileName: string;
+                        if (textDoc.isUntitled) {
+                            // For untitled documents, create a more descriptive name
+                            const tabLabel = tab.label || `Untitled-${textDoc.languageId}`;
+                            fileName = tabLabel;
+                        } else {
+                            fileName = vscode.workspace.asRelativePath(textDoc.fileName);
+                            // If the relative path is the same as the full path, show just the filename
+                            if (fileName === textDoc.fileName) {
+                                fileName = textDoc.fileName.split(/[/\\]/).pop() || fileName;
+                            }
+                        }
+
+                        // Avoid duplicates (same file can be open in multiple tab groups)
+                        const existingEditor = openEditors.find(e => e.id === textDoc.uri.toString());
+                        if (!existingEditor) {
+                            openEditors.push({
+                                id: textDoc.uri.toString(),
+                                fileName: fileName,
+                                language: textDoc.languageId,
+                                isDirty: textDoc.isDirty
+                            });
+                        }
+                    }
                 }
-            }
-
-            openEditors.push({
-                id: editor.document.uri.toString(),
-                fileName: fileName,
-                language: editor.document.languageId,
-                isDirty: editor.document.isDirty
             });
         });
 
-        // Also add recently opened documents that might not be visible
-        vscode.workspace.textDocuments.forEach(doc => {
-            const existingEditor = openEditors.find(e => e.id === doc.uri.toString());
-            if (!existingEditor && !doc.isUntitled &&
-                ['json', 'jsonata', 'javascript', 'typescript', 'plaintext'].includes(doc.languageId)) {
-
-                let fileName = vscode.workspace.asRelativePath(doc.fileName);
-                if (fileName === doc.fileName) {
-                    fileName = doc.fileName.split(/[/\\]/).pop() || fileName;
+        // Fallback: If tabGroups API doesn't return expected results, use visible editors
+        if (openEditors.length === 0) {
+            vscode.window.visibleTextEditors.forEach(editor => {
+                let fileName: string;
+                if (editor.document.isUntitled) {
+                    fileName = `Untitled-${editor.document.languageId}`;
+                } else {
+                    fileName = vscode.workspace.asRelativePath(editor.document.fileName);
+                    if (fileName === editor.document.fileName) {
+                        fileName = editor.document.fileName.split(/[/\\]/).pop() || fileName;
+                    }
                 }
 
                 openEditors.push({
-                    id: doc.uri.toString(),
-                    fileName: fileName + ' (not visible)',
-                    language: doc.languageId,
-                    isDirty: doc.isDirty
+                    id: editor.document.uri.toString(),
+                    fileName: fileName,
+                    language: editor.document.languageId,
+                    isDirty: editor.document.isDirty
                 });
-            }
-        });
+            });
+        }
 
-        return openEditors.sort((a, b) => {
-            // Sort by: visible editors first, then by filename
-            const aVisible = !a.fileName.includes('(not visible)');
-            const bVisible = !b.fileName.includes('(not visible)');
-
-            if (aVisible && !bVisible) {
-                return -1;
-            }
-            if (!aVisible && bVisible) {
-                return 1;
-            }
-
-            return a.fileName.localeCompare(b.fileName);
-        });
+        // Sort by filename for better organization
+        return openEditors.sort((a, b) => a.fileName.localeCompare(b.fileName));
     }
 
     /**
      * Gets the content of a specific editor by ID
      */
     private getEditorContent(editorId: string): string | null {
-        // First try visible editors
-        const visibleEditor = vscode.window.visibleTextEditors.find(e => e.document.uri.toString() === editorId);
-        if (visibleEditor) {
-            return visibleEditor.document.getText();
-        }
-
-        // Then try all workspace documents
+        // First try to find the document in workspace
         const document = vscode.workspace.textDocuments.find(doc => doc.uri.toString() === editorId);
         if (document) {
             return document.getText();
+        }
+
+        // Fallback: try visible editors
+        const visibleEditor = vscode.window.visibleTextEditors.find(e => e.document.uri.toString() === editorId);
+        if (visibleEditor) {
+            return visibleEditor.document.getText();
         }
 
         return null;
@@ -690,5 +695,58 @@ export class PlaygroundWebviewManager {
             }
         });
         this.disposables.push(saveDisposable);
+
+        // Listen for tab changes to update available editors
+        const tabChangeDisposable = vscode.window.tabGroups.onDidChangeTabs(() => {
+            // Update available editors when tabs change
+            this.updateAvailableEditors();
+
+            // Check if selected editors are still available
+            this.validateSelectedEditors();
+        });
+        this.disposables.push(tabChangeDisposable);
+
+        // Listen for when documents are closed
+        const closeDisposable = vscode.workspace.onDidCloseTextDocument((document) => {
+            const documentUri = document.uri.toString();
+
+            // If a selected editor was closed, reset the selection
+            if (this.state.selectedJsonInputEditor === documentUri) {
+                this.state.selectedJsonInputEditor = null;
+                // Reset to default content if needed
+                this.state.jsonInput = '{\n  "example": [\n    {"value": 4},\n    {"value": 7},\n    {"value": 13}\n  ]\n}';
+                this.evaluateExpression();
+            }
+
+            if (this.state.selectedTemplateEditor === documentUri) {
+                this.state.selectedTemplateEditor = null;
+                // Reset to default content if needed
+                this.state.jsonataExpression = 'example[value > 5].value';
+                this.evaluateExpression();
+            }
+
+            // Update available editors list
+            this.updateAvailableEditors();
+        });
+        this.disposables.push(closeDisposable);
+    }
+
+    /**
+     * Validates that selected editors are still available and resets if not
+     */
+    private validateSelectedEditors(): void {
+        const availableEditorIds = this.state.availableEditors.map(e => e.id);
+
+        if (this.state.selectedJsonInputEditor && !availableEditorIds.includes(this.state.selectedJsonInputEditor)) {
+            this.state.selectedJsonInputEditor = null;
+            this.state.jsonInput = '{\n  "example": [\n    {"value": 4},\n    {"value": 7},\n    {"value": 13}\n  ]\n}';
+            this.evaluateExpression();
+        }
+
+        if (this.state.selectedTemplateEditor && !availableEditorIds.includes(this.state.selectedTemplateEditor)) {
+            this.state.selectedTemplateEditor = null;
+            this.state.jsonataExpression = 'example[value > 5].value';
+            this.evaluateExpression();
+        }
     }
 }

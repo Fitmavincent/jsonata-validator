@@ -1,0 +1,6 @@
+users[active=true].{
+  "fullName": name,
+  "contactInfo": email,
+  "yearsOfService": $round(($now() - $toMillis("2020-01-01T00:00:00.000Z")) / (365.25 * 24 * 60 * 60 * 1000)) - (40 - age),
+  "department": department
+}[yearsOfService > 0]
