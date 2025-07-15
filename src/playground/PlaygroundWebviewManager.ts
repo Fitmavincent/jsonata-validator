@@ -70,6 +70,9 @@ export class PlaygroundWebviewManager {
             case 'refreshEditors':
                 this.updateAvailableEditors();
                 break;
+            case 'copyResult':
+                this.copyResultToClipboard();
+                break;
         }
     }
 
@@ -110,6 +113,28 @@ export class PlaygroundWebviewManager {
         this.updateJsonInput(jsonData);
         this.evaluateExpression();
         this.sendStateToWebview();
+    }
+
+    /**
+     * Copies the current result to the clipboard
+     */
+    private async copyResultToClipboard(): Promise<void> {
+        if (this.state.result && !this.state.error) {
+            try {
+                await vscode.env.clipboard.writeText(this.state.result);
+                // Optionally show a success message
+                this.webview.postMessage({
+                    type: 'copySuccess',
+                    data: { message: 'Result copied to clipboard' }
+                });
+            } catch (error) {
+                console.error('Failed to copy result to clipboard:', error);
+                this.webview.postMessage({
+                    type: 'copyError',
+                    data: { message: 'Failed to copy result' }
+                });
+            }
+        }
     }
 
     /**
@@ -338,6 +363,50 @@ export class PlaygroundWebviewManager {
             font-weight: 600;
             text-transform: uppercase;
             letter-spacing: 0.5px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .copy-button {
+            background: none;
+            border: none;
+            color: var(--vscode-foreground);
+            cursor: pointer;
+            padding: 4px 8px;
+            border-radius: 3px;
+            font-size: 11px;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            opacity: 0.7;
+            transition: opacity 0.2s, background-color 0.2s;
+            min-width: 60px;
+            justify-content: center;
+        }
+
+        .copy-button:hover {
+            opacity: 1;
+            background-color: var(--vscode-toolbar-hoverBackground);
+        }
+
+        .copy-button:active {
+            background-color: var(--vscode-toolbar-activeBackground);
+        }
+
+        .copy-button:focus {
+            outline: 1px solid var(--vscode-focusBorder);
+            outline-offset: -1px;
+        }
+
+        .copy-button.copied {
+            color: var(--vscode-terminal-ansiGreen);
+            opacity: 1;
+        }
+
+        .copy-button:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
         }
 
         .panel-content {
@@ -362,6 +431,51 @@ export class PlaygroundWebviewManager {
             white-space: pre-wrap;
             word-wrap: break-word;
             line-height: 1.4;
+            position: relative;
+        }
+
+        .result-content:focus {
+            outline: 1px solid var(--vscode-focusBorder);
+            outline-offset: -1px;
+        }
+
+        .result-content:focus::before {
+            content: "Press Ctrl+C to copy";
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            background: var(--vscode-badge-background);
+            color: var(--vscode-badge-foreground);
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 10px;
+            opacity: 0.8;
+            pointer-events: none;
+        }
+
+        /* JSON Syntax Highlighting */
+        .json-key {
+            color: var(--vscode-symbolIcon-propertyForeground, #9cdcfe);
+        }
+
+        .json-string {
+            color: var(--vscode-symbolIcon-stringForeground, #ce9178);
+        }
+
+        .json-number {
+            color: var(--vscode-symbolIcon-numberForeground, #b5cea8);
+        }
+
+        .json-boolean {
+            color: var(--vscode-symbolIcon-booleanForeground, #569cd6);
+        }
+
+        .json-null {
+            color: var(--vscode-symbolIcon-nullForeground, #569cd6);
+        }
+
+        .json-punctuation {
+            color: var(--vscode-editor-foreground);
         }
 
         .error {
@@ -449,7 +563,13 @@ export class PlaygroundWebviewManager {
 
     <div class="container">
         <div class="result-panel">
-            <div class="panel-header">Live Evaluation Result</div>
+            <div class="panel-header">
+                Live Evaluation Result
+                <button id="copyBtn" class="copy-button" title="Copy result to clipboard">
+                    <span id="copyIcon">📋</span>
+                    <span id="copyText">Copy</span>
+                </button>
+            </div>
             <div class="panel-content">
                 <div id="result" class="result-content"></div>
                 <div id="error" class="error" style="display: none;"></div>
@@ -476,10 +596,108 @@ export class PlaygroundWebviewManager {
             const jsonInputSelect = document.getElementById('jsonInputSelect');
             const templateSelect = document.getElementById('templateSelect');
             const refreshBtn = document.getElementById('refreshBtn');
+            const copyBtn = document.getElementById('copyBtn');
+            const copyIcon = document.getElementById('copyIcon');
+            const copyText = document.getElementById('copyText');
+
+            let currentResultText = '';
 
             function updateStatus(text, isError = false) {
                 statusText.textContent = text;
                 statusText.className = 'status-item ' + (isError ? 'status-error' : 'status-success');
+            }
+
+            function highlightJson(jsonString) {
+                if (!jsonString || jsonString.trim() === '') {
+                    return '';
+                }
+
+                try {
+                    // First, try to parse and re-stringify to ensure it's valid JSON
+                    const parsed = JSON.parse(jsonString);
+                    const formatted = JSON.stringify(parsed, null, 2);
+
+                    // Apply syntax highlighting with more robust regex patterns
+                    return formatted
+                        .replace(/("(?:[^"\\\\]|\\\\.)*")\s*:/g, '<span class="json-key">$1</span>:')
+                        .replace(/:\s*("(?:[^"\\\\]|\\\\.)*")/g, ': <span class="json-string">$1</span>')
+                        .replace(/:\s*(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)/g, ': <span class="json-number">$1</span>')
+                        .replace(/:\s*(true|false)\b/g, ': <span class="json-boolean">$1</span>')
+                        .replace(/:\s*(null)\b/g, ': <span class="json-null">$1</span>')
+                        .replace(/([{}\[\],])/g, '<span class="json-punctuation">$1</span>');
+                } catch (e) {
+                    // If it's not valid JSON, check if it's a simple value and highlight accordingly
+                    const trimmed = jsonString.trim();
+                    if (trimmed.match(/^".*"$/)) {
+                        return '<span class="json-string">' + jsonString + '</span>';
+                    } else if (trimmed.match(/^-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?$/)) {
+                        return '<span class="json-number">' + jsonString + '</span>';
+                    } else if (trimmed.match(/^(true|false)$/)) {
+                        return '<span class="json-boolean">' + jsonString + '</span>';
+                    } else if (trimmed.match(/^null$/)) {
+                        return '<span class="json-null">' + jsonString + '</span>';
+                    }
+
+                    // If none of the above, return as is (might be a complex result)
+                    return jsonString;
+                }
+            }
+
+            function copyToClipboard() {
+                if (!currentResultText) {
+                    return;
+                }
+
+                // Temporarily disable the button to prevent multiple clicks
+                copyBtn.disabled = true;
+
+                navigator.clipboard.writeText(currentResultText).then(() => {
+                    // Show success state
+                    copyIcon.textContent = '✓';
+                    copyText.textContent = 'Copied';
+                    copyBtn.classList.add('copied');
+
+                    // Reset after 2 seconds
+                    setTimeout(() => {
+                        copyIcon.textContent = '📋';
+                        copyText.textContent = 'Copy';
+                        copyBtn.classList.remove('copied');
+                        copyBtn.disabled = false;
+                    }, 2000);
+                }).catch(err => {
+                    console.error('Failed to copy: ', err);
+                    // Fallback for older browsers
+                    const textArea = document.createElement('textarea');
+                    textArea.value = currentResultText;
+                    textArea.style.position = 'fixed';
+                    textArea.style.left = '-999999px';
+                    textArea.style.top = '-999999px';
+                    document.body.appendChild(textArea);
+                    textArea.focus();
+                    textArea.select();
+                    try {
+                        document.execCommand('copy');
+                        copyIcon.textContent = '✓';
+                        copyText.textContent = 'Copied';
+                        copyBtn.classList.add('copied');
+                        setTimeout(() => {
+                            copyIcon.textContent = '📋';
+                            copyText.textContent = 'Copy';
+                            copyBtn.classList.remove('copied');
+                            copyBtn.disabled = false;
+                        }, 2000);
+                    } catch (e) {
+                        console.error('Fallback copy failed: ', e);
+                        copyIcon.textContent = '❌';
+                        copyText.textContent = 'Failed';
+                        setTimeout(() => {
+                            copyIcon.textContent = '📋';
+                            copyText.textContent = 'Copy';
+                            copyBtn.disabled = false;
+                        }, 2000);
+                    }
+                    document.body.removeChild(textArea);
+                });
             }
 
             function populateEditorSelects(availableEditors, selectedJsonInputEditor, selectedTemplateEditor) {
@@ -515,11 +733,24 @@ export class PlaygroundWebviewManager {
                 if (state.error) {
                     error.textContent = state.error;
                     error.style.display = 'block';
-                    result.textContent = '';
+                    result.innerHTML = '';
+                    currentResultText = '';
+                    copyBtn.style.display = 'none';
                     updateStatus('Error in evaluation', true);
                 } else {
                     error.style.display = 'none';
-                    result.textContent = state.result;
+                    currentResultText = state.result;
+                    result.innerHTML = highlightJson(state.result);
+
+                    // Show/hide and enable/disable copy button based on result
+                    if (currentResultText) {
+                        copyBtn.style.display = 'flex';
+                        copyBtn.disabled = false;
+                    } else {
+                        copyBtn.style.display = 'none';
+                        copyBtn.disabled = true;
+                    }
+
                     updateStatus('Evaluation successful');
                 }
             }
@@ -543,12 +774,50 @@ export class PlaygroundWebviewManager {
                 vscode.postMessage({ type: 'refreshEditors' });
             });
 
+            copyBtn.addEventListener('click', copyToClipboard);
+
+            // Add keyboard shortcut for copy (Ctrl+C)
+            document.addEventListener('keydown', (event) => {
+                if ((event.ctrlKey || event.metaKey) && event.key === 'c' && currentResultText) {
+                    // Only copy if the result panel is focused or if nothing else is selected
+                    if (document.activeElement === result || window.getSelection().toString() === '') {
+                        event.preventDefault();
+                        copyToClipboard();
+                    }
+                }
+            });
+
+            // Make the result div focusable for keyboard shortcuts
+            result.setAttribute('tabindex', '0');
+
             // Handle messages from extension
             window.addEventListener('message', event => {
                 const message = event.data;
                 switch (message.type) {
                     case 'updateState':
                         handleStateUpdate(message.data);
+                        break;
+                    case 'copySuccess':
+                        // Show success state
+                        copyIcon.textContent = '✓';
+                        copyText.textContent = 'Copied';
+                        copyBtn.classList.add('copied');
+                        copyBtn.disabled = false;
+                        setTimeout(() => {
+                            copyIcon.textContent = '📋';
+                            copyText.textContent = 'Copy';
+                            copyBtn.classList.remove('copied');
+                        }, 2000);
+                        break;
+                    case 'copyError':
+                        // Show error state briefly
+                        copyIcon.textContent = '❌';
+                        copyText.textContent = 'Failed';
+                        copyBtn.disabled = false;
+                        setTimeout(() => {
+                            copyIcon.textContent = '📋';
+                            copyText.textContent = 'Copy';
+                        }, 2000);
                         break;
                 }
             });
