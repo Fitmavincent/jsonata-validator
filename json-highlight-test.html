@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>JSON Highlight Test</title>
+    <style>
+        body { font-family: monospace; background: #1e1e1e; color: #d4d4d4; padding: 20px; }
+
+        .json-key { color: #9cdcfe; }
+        .json-string { color: #ce9178; }
+        .json-number { color: #b5cea8; }
+        .json-boolean { color: #569cd6; }
+        .json-null { color: #569cd6; }
+        .json-punctuation { color: #d4d4d4; }
+
+        .test-container { border: 1px solid #333; padding: 10px; margin: 10px 0; }
+    </style>
+</head>
+<body>
+    <h1>JSON Highlighting Test</h1>
+
+    <div class="test-container">
+        <h3>Test 1: Simple Object</h3>
+        <div id="test1"></div>
+    </div>
+
+    <div class="test-container">
+        <h3>Test 2: Array with Mixed Types</h3>
+        <div id="test2"></div>
+    </div>
+
+    <div class="test-container">
+        <h3>Test 3: Nested Object</h3>
+        <div id="test3"></div>
+    </div>
+
+    <script>
+        function highlightJson(jsonString) {
+            if (!jsonString || jsonString.trim() === '') {
+                return '';
+            }
+
+            try {
+                const parsed = JSON.parse(jsonString);
+                const formatted = JSON.stringify(parsed, null, 2);
+
+                return formatted
+                    .split('\n')
+                    .map(line => {
+                        line = line.replace(/("(?:[^"\\]|\\.)*")(\s*:)/g, '<span class="json-key">$1</span>$2');
+                        line = line.replace(/:(\s*)("(?:[^"\\]|\\.)*")/g, ':$1<span class="json-string">$2</span>');
+                        line = line.replace(/:(\s*)(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)/g, ':$1<span class="json-number">$2</span>');
+                        line = line.replace(/:(\s*)(true|false)\b/g, ':$1<span class="json-boolean">$2</span>');
+                        line = line.replace(/:(\s*)(null)\b/g, ':$1<span class="json-null">$2</span>');
+                        line = line.replace(/([{}\[\],])/g, '<span class="json-punctuation">$1</span>');
+                        return line;
+                    })
+                    .join('\n');
+            } catch (e) {
+                return jsonString;
+            }
+        }
+
+        // Test data
+        const test1 = '{"name": "John", "age": 30, "active": true, "balance": null}';
+        const test2 = '[4, 7, 13, "hello", true, null]';
+        const test3 = '{"user": {"name": "Jane", "settings": {"theme": "dark", "notifications": true}}}';
+
+        // Apply highlighting
+        document.getElementById('test1').innerHTML = highlightJson(test1);
+        document.getElementById('test2').innerHTML = highlightJson(test2);
+        document.getElementById('test3').innerHTML = highlightJson(test3);
+    </script>
+</body>
+</html>

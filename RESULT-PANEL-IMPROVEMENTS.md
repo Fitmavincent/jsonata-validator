@@ -15,13 +15,15 @@ Enhanced the JSONata playground result panel with two key features:
 - **Smart Behavior**: Button is only visible when there's a result to copy
 
 ### 2. JSON Syntax Highlighting
-- **Proper JSON Colors**: Uses VS Code's color theme for JSON elements:
-  - Property names (keys) in blue
-  - String values in orange
-  - Numbers in green
-  - Booleans (`true`/`false`) in blue
-  - `null` values in blue
+- **VS Code Theme Integration**: Uses VS Code-compatible colors for JSON elements
+- **Comprehensive Highlighting**:
+  - Property names (keys) in light blue (#9cdcfe for dark theme, #0070c1 for light theme)
+  - String values in orange/brown (#ce9178 for dark theme, #a31515 for light theme)
+  - Numbers in green (#b5cea8 for dark theme, #09885a for light theme)
+  - Booleans (`true`/`false`) in blue (#569cd6 for dark theme, #0000ff for light theme)
+  - `null` values in blue (#569cd6 for dark theme, #0000ff for light theme)
   - Punctuation (braces, brackets, commas) in default foreground color
+- **Theme Support**: Automatically adapts to VS Code's dark, light, and high contrast themes
 - **Robust Parsing**: Handles both valid JSON objects and simple values
 - **Fallback Handling**: Gracefully handles non-JSON results
 

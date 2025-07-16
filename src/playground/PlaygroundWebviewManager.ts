@@ -454,28 +454,92 @@ export class PlaygroundWebviewManager {
         }
 
         /* JSON Syntax Highlighting */
-        .json-key {
-            color: var(--vscode-symbolIcon-propertyForeground, #9cdcfe);
+        .result-content .json-key {
+            color: #9cdcfe !important;
+            font-weight: normal;
         }
 
-        .json-string {
-            color: var(--vscode-symbolIcon-stringForeground, #ce9178);
+        .result-content .json-string {
+            color: #ce9178 !important;
         }
 
-        .json-number {
-            color: var(--vscode-symbolIcon-numberForeground, #b5cea8);
+        .result-content .json-number {
+            color: #b5cea8 !important;
         }
 
-        .json-boolean {
-            color: var(--vscode-symbolIcon-booleanForeground, #569cd6);
+        .result-content .json-boolean {
+            color: #569cd6 !important;
         }
 
-        .json-null {
-            color: var(--vscode-symbolIcon-nullForeground, #569cd6);
+        .result-content .json-null {
+            color: #569cd6 !important;
         }
 
-        .json-punctuation {
-            color: var(--vscode-editor-foreground);
+        .result-content .json-punctuation {
+            color: var(--vscode-editor-foreground) !important;
+        }
+
+        /* Dark theme adjustments */
+        body[data-vscode-theme-kind="vscode-dark"] .result-content .json-key {
+            color: #9cdcfe !important;
+        }
+
+        body[data-vscode-theme-kind="vscode-dark"] .result-content .json-string {
+            color: #ce9178 !important;
+        }
+
+        body[data-vscode-theme-kind="vscode-dark"] .result-content .json-number {
+            color: #b5cea8 !important;
+        }
+
+        body[data-vscode-theme-kind="vscode-dark"] .result-content .json-boolean {
+            color: #569cd6 !important;
+        }
+
+        body[data-vscode-theme-kind="vscode-dark"] .result-content .json-null {
+            color: #569cd6 !important;
+        }
+
+        /* Light theme adjustments */
+        body[data-vscode-theme-kind="vscode-light"] .result-content .json-key {
+            color: #0070c1 !important;
+        }
+
+        body[data-vscode-theme-kind="vscode-light"] .result-content .json-string {
+            color: #a31515 !important;
+        }
+
+        body[data-vscode-theme-kind="vscode-light"] .result-content .json-number {
+            color: #09885a !important;
+        }
+
+        body[data-vscode-theme-kind="vscode-light"] .result-content .json-boolean {
+            color: #0000ff !important;
+        }
+
+        body[data-vscode-theme-kind="vscode-light"] .result-content .json-null {
+            color: #0000ff !important;
+        }
+
+        /* High contrast theme adjustments */
+        body[data-vscode-theme-kind="vscode-high-contrast"] .result-content .json-key {
+            color: #569cd6 !important;
+        }
+
+        body[data-vscode-theme-kind="vscode-high-contrast"] .result-content .json-string {
+            color: #ce9178 !important;
+        }
+
+        body[data-vscode-theme-kind="vscode-high-contrast"] .result-content .json-number {
+            color: #b5cea8 !important;
+        }
+
+        body[data-vscode-theme-kind="vscode-high-contrast"] .result-content .json-boolean {
+            color: #569cd6 !important;
+        }
+
+        body[data-vscode-theme-kind="vscode-high-contrast"] .result-content .json-null {
+            color: #569cd6 !important;
         }
 
         .error {
@@ -539,7 +603,7 @@ export class PlaygroundWebviewManager {
         }
     </style>
 </head>
-<body>
+<body data-vscode-theme-kind="vscode-dark">
     <div class="header">
         <h1>📊 JSONata Results</h1>
         <div class="info">Live evaluation • Select any open editor as input source</div>
@@ -602,6 +666,25 @@ export class PlaygroundWebviewManager {
 
             let currentResultText = '';
 
+            // Detect and set theme
+            function setTheme() {
+                const body = document.body;
+                const computedStyle = getComputedStyle(body);
+                const backgroundColor = computedStyle.backgroundColor;
+
+                // Simple theme detection based on background color
+                if (backgroundColor === 'rgb(30, 30, 30)' || backgroundColor === 'rgb(37, 37, 38)') {
+                    body.setAttribute('data-vscode-theme-kind', 'vscode-dark');
+                } else if (backgroundColor === 'rgb(255, 255, 255)' || backgroundColor === 'rgb(248, 248, 248)') {
+                    body.setAttribute('data-vscode-theme-kind', 'vscode-light');
+                } else {
+                    body.setAttribute('data-vscode-theme-kind', 'vscode-high-contrast');
+                }
+            }
+
+            // Set theme on load
+            setTheme();
+
             function updateStatus(text, isError = false) {
                 statusText.textContent = text;
                 statusText.className = 'status-item ' + (isError ? 'status-error' : 'status-success');
@@ -617,14 +700,31 @@ export class PlaygroundWebviewManager {
                     const parsed = JSON.parse(jsonString);
                     const formatted = JSON.stringify(parsed, null, 2);
 
-                    // Apply syntax highlighting with more robust regex patterns
+                    // Use a more straightforward approach for highlighting
                     return formatted
-                        .replace(/("(?:[^"\\\\]|\\\\.)*")\s*:/g, '<span class="json-key">$1</span>:')
-                        .replace(/:\s*("(?:[^"\\\\]|\\\\.)*")/g, ': <span class="json-string">$1</span>')
-                        .replace(/:\s*(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)/g, ': <span class="json-number">$1</span>')
-                        .replace(/:\s*(true|false)\b/g, ': <span class="json-boolean">$1</span>')
-                        .replace(/:\s*(null)\b/g, ': <span class="json-null">$1</span>')
-                        .replace(/([{}\[\],])/g, '<span class="json-punctuation">$1</span>');
+                        .split('\\n')
+                        .map(line => {
+                            // Property names (keys)
+                            line = line.replace(/("(?:[^"\\\\]|\\\\.)*")(\s*:)/g, '<span class="json-key">$1</span>$2');
+
+                            // String values
+                            line = line.replace(/:(\s*)("(?:[^"\\\\]|\\\\.)*")/g, ':$1<span class="json-string">$2</span>');
+
+                            // Numbers
+                            line = line.replace(/:(\s*)(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)/g, ':$1<span class="json-number">$2</span>');
+
+                            // Booleans
+                            line = line.replace(/:(\s*)(true|false)\\b/g, ':$1<span class="json-boolean">$2</span>');
+
+                            // Null values
+                            line = line.replace(/:(\s*)(null)\\b/g, ':$1<span class="json-null">$2</span>');
+
+                            // Punctuation
+                            line = line.replace(/([{}\\[\\],])/g, '<span class="json-punctuation">$1</span>');
+
+                            return line;
+                        })
+                        .join('\\n');
                 } catch (e) {
                     // If it's not valid JSON, check if it's a simple value and highlight accordingly
                     const trimmed = jsonString.trim();
@@ -740,7 +840,14 @@ export class PlaygroundWebviewManager {
                 } else {
                     error.style.display = 'none';
                     currentResultText = state.result;
-                    result.innerHTML = highlightJson(state.result);
+
+                    // Apply JSON highlighting
+                    const highlightedResult = highlightJson(state.result);
+                    result.innerHTML = highlightedResult;
+
+                    // Debug: log the result to console to see what we're working with
+                    console.log('Result text:', state.result);
+                    console.log('Highlighted result:', highlightedResult);
 
                     // Show/hide and enable/disable copy button based on result
                     if (currentResultText) {
