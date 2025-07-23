@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { PlaygroundWebviewManager } from './PlaygroundWebviewManager';
 import { PlaygroundEditorManager } from './PlaygroundEditorManager';
+import { ValidationService } from '../validation/ValidationService';
 
 /**
  * Manages the webview panel for the JSONata playground
@@ -13,7 +14,10 @@ export class PlaygroundPanel {
     private jsonInputEditor: vscode.TextEditor | undefined;
     private jsonataExpressionEditor: vscode.TextEditor | undefined;
 
-    constructor(private context: vscode.ExtensionContext) {
+    constructor(
+        private context: vscode.ExtensionContext,
+        private validationService?: ValidationService
+    ) {
         // Initialize editor manager first
         this.editorManager = new PlaygroundEditorManager(context);
 
@@ -38,8 +42,8 @@ export class PlaygroundPanel {
             dark: vscode.Uri.joinPath(this.context.extensionUri, 'media', 'playground-dark.svg')
         };
 
-        // Initialize webview manager for results display
-        this.webviewManager = new PlaygroundWebviewManager(this.panel.webview, this.context);
+        // Initialize webview manager for results display with validation service
+        this.webviewManager = new PlaygroundWebviewManager(this.panel.webview, this.context, this.validationService);
 
         // Set up event handlers
         this.setupEventHandlers();

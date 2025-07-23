@@ -1,0 +1,45 @@
+// Demo: JSONata Error Handling Enhancement Test
+// Copy the JSON data below into the playground's JSON input,
+// then test each expression to see enhanced error reporting
+
+// Sample JSON Data:
+/*
+{
+  "users": [
+    {"name": "Alice", "age": 30, "department": "Engineering"},
+    {"name": "Bob", "age": 25, "department": "Marketing"},
+    {"name": "Charlie", "age": 35, "department": "Engineering"}
+  ]
+}
+*/
+
+// ✅ VALID EXPRESSION - Should work without errors
+users[department = "Engineering"].name
+
+// ❌ SYNTAX ERROR 1 - Unclosed parenthesis (will show line/char position + suggestion)
+// users[department = "Engineering"(.name
+
+// ❌ SYNTAX ERROR 2 - Trailing comma (will highlight exact comma location)
+/*
+{
+  "engineeringUsers": users[department = "Engineering"],
+  "count": $count(users),
+}
+*/
+
+// ❌ RUNTIME ERROR - Invalid function (will suggest correct function names)
+// users.$invalidFunction()
+
+// ❌ SYNTAX ERROR 3 - Dot operator issue (will explain unary operator problem)
+// users.department.
+
+// Test Instructions:
+// 1. Open JSONata Playground (Ctrl+Shift+P -> "JSONata: Open Playground")
+// 2. Copy the JSON data above into the left panel
+// 3. Copy and test each expression above (uncomment the error examples)
+// 4. Observe detailed error information with:
+//    - Error type badges (compilation/runtime)
+//    - Precise line/character locations
+//    - Code snippets with error highlighting
+//    - Helpful suggestions for fixes
+//    - Copy error details functionality

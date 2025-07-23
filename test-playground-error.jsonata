@@ -1,0 +1,4 @@
+// Test error highlighting in the JSONata template source
+// This expression has a syntax error - unclosed parenthesis
+
+example[value > 5(.value

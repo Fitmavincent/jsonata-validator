@@ -1,0 +1,19 @@
+// Test file with various JSONata errors for testing error handling
+
+// Syntax error: unclosed parenthesis
+example.data(
+
+// Syntax error: trailing comma
+{
+  "test": 1,
+  "value": 2,
+}
+
+// Syntax error: missing quote
+example.field"
+
+// Runtime error: invalid function
+example.$invalidFunction()
+
+// Valid expression for comparison
+example[value > 5].value

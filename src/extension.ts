@@ -24,8 +24,8 @@ export function activate(context: vscode.ExtensionContext) {
 	// Initialize validation service
 	validationService = new ValidationService(diagnosticCollection);
 
-	// Initialize playground provider
-	const playgroundProvider = PlaygroundProvider.getInstance(context);
+	// Initialize playground provider with validation service
+	const playgroundProvider = PlaygroundProvider.getInstance(context, validationService);
 
 	// Register commands
 	const validateDocumentCommand = vscode.commands.registerCommand('jsonata-validator.validateDocument', () => {

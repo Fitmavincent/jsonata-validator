@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { PlaygroundPanel } from './PlaygroundPanel';
+import { ValidationService } from '../validation/ValidationService';
 
 /**
  * Provider class that manages the JSONata playground functionality
@@ -8,14 +9,17 @@ export class PlaygroundProvider {
     private static instance: PlaygroundProvider;
     private currentPanel: PlaygroundPanel | undefined;
 
-    private constructor(private context: vscode.ExtensionContext) {}
+    private constructor(
+        private context: vscode.ExtensionContext,
+        private validationService?: ValidationService
+    ) {}
 
-    public static getInstance(context?: vscode.ExtensionContext): PlaygroundProvider {
+    public static getInstance(context?: vscode.ExtensionContext, validationService?: ValidationService): PlaygroundProvider {
         if (!PlaygroundProvider.instance) {
             if (!context) {
                 throw new Error('Context is required to create PlaygroundProvider instance');
             }
-            PlaygroundProvider.instance = new PlaygroundProvider(context);
+            PlaygroundProvider.instance = new PlaygroundProvider(context, validationService);
         }
         return PlaygroundProvider.instance;
     }
@@ -29,7 +33,7 @@ export class PlaygroundProvider {
             this.currentPanel.reveal();
         } else {
             // Create new panel
-            this.currentPanel = new PlaygroundPanel(this.context);
+            this.currentPanel = new PlaygroundPanel(this.context, this.validationService);
 
             // Handle panel disposal
             this.currentPanel.onDidDispose(() => {

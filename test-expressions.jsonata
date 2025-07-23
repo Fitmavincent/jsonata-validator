@@ -1,0 +1,14 @@
+// Valid JSONata expression
+users[department = "Engineering"].name
+
+// Expression with syntax error (unclosed parenthesis)
+users[department = "Engineering"(.name
+
+// Expression with runtime error (invalid function)
+users.$invalidFunction()
+
+// Expression with trailing comma error
+{
+  "engineeringUsers": users[department = "Engineering"],
+  "count": $count(users),
+}
