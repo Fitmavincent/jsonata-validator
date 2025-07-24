@@ -16,7 +16,9 @@ export class PlaygroundPanel {
 
     constructor(
         private context: vscode.ExtensionContext,
-        private validationService?: ValidationService
+        private validationService?: ValidationService,
+        private onShareCallback?: () => Promise<void>,
+        private onImportCallback?: () => Promise<void>
     ) {
         // Initialize editor manager first
         this.editorManager = new PlaygroundEditorManager(context);
@@ -76,6 +78,9 @@ export class PlaygroundPanel {
             // Step 4: Load the webview content for results (bottom right)
             this.webviewManager.updateWebviewContent();
 
+            // Step 4.5: Set up share/import callbacks
+            this.setupShareImportCallbacks();
+
             // Step 5: Set up the layout properly after a short delay
             setTimeout(async () => {
                 await this.ensureProperLayout();
@@ -91,6 +96,18 @@ export class PlaygroundPanel {
         } catch (error) {
             console.error('Failed to initialize playground:', error);
             vscode.window.showErrorMessage('Failed to initialize JSONata playground');
+        }
+    }
+
+    /**
+     * Sets up the share and import callbacks for the webview manager
+     */
+    private setupShareImportCallbacks(): void {
+        if (this.onShareCallback) {
+            this.webviewManager.setOnShareCallback(this.onShareCallback);
+        }
+        if (this.onImportCallback) {
+            this.webviewManager.setOnImportCallback(this.onImportCallback);
         }
     }
 

@@ -4,6 +4,8 @@ import * as vscode from 'vscode';
 import { PlaygroundProvider } from './playground/PlaygroundProvider';
 import { ValidationService } from './validation/ValidationService';
 import { isJsonataFile } from './utils/jsonataUtils';
+import { ExportService } from './share/ExportService';
+import { ImportService } from './share/ImportService';
 
 // Diagnostic collection for JSONata validation errors
 let diagnosticCollection: vscode.DiagnosticCollection;
@@ -77,6 +79,23 @@ export function activate(context: vscode.ExtensionContext) {
 		}
 	});
 
+	// Share/Import commands
+	const sharePlaygroundSessionCommand = vscode.commands.registerCommand('jsonata-validator.sharePlaygroundSession', async () => {
+		await ExportService.showExportDialog(playgroundProvider);
+	});
+
+	const importPlaygroundSessionCommand = vscode.commands.registerCommand('jsonata-validator.importPlaygroundSession', async () => {
+		await ImportService.showImportDialog(playgroundProvider);
+	});
+
+	const exportPlaygroundToClipboardCommand = vscode.commands.registerCommand('jsonata-validator.exportPlaygroundToClipboard', async () => {
+		await ExportService.quickExportToClipboard(playgroundProvider);
+	});
+
+	const importPlaygroundFromClipboardCommand = vscode.commands.registerCommand('jsonata-validator.importPlaygroundFromClipboard', async () => {
+		await ImportService.quickImportFromClipboard(playgroundProvider);
+	});
+
 	// Register event listeners
 	const onDidChangeTextDocument = vscode.workspace.onDidChangeTextDocument(event => {
 		const config = vscode.workspace.getConfiguration('jsonataValidator');
@@ -114,6 +133,10 @@ export function activate(context: vscode.ExtensionContext) {
 		openPlaygroundCommand,
 		openPlaygroundWithSelectionCommand,
 		populatePlaygroundFromActiveEditor,
+		sharePlaygroundSessionCommand,
+		importPlaygroundSessionCommand,
+		exportPlaygroundToClipboardCommand,
+		importPlaygroundFromClipboardCommand,
 		onDidChangeTextDocument,
 		onDidSaveTextDocument,
 		onDidOpenTextDocument,

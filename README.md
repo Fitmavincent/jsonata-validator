@@ -45,6 +45,14 @@ The extension includes an interactive playground for testing JSONata expressions
 - Changes in selected files automatically update the playground results
 - Perfect for testing expressions against multiple data sets
 
+### New: Session Share/Import 🔥
+- **Share sessions**: Export your current playground state (JSON input, JSONata expression, and results) as a shareable JSON format
+- **Import sessions**: Import shared sessions from clipboard or file to recreate the exact playground state
+- **One-click sharing**: Copy session to clipboard or save to file with a single click
+- **Collaboration**: Perfect for sharing examples, debugging, and team collaboration
+- **Automatic layout**: Imported sessions automatically set up the 3-panel layout
+- See [SHARE-IMPORT-FEATURE.md](./SHARE-IMPORT-FEATURE.md) for detailed documentation
+
 See [PLAYGROUND.md](./PLAYGROUND.md) for detailed playground documentation and [EDITOR-TAB-SELECTION.md](./EDITOR-TAB-SELECTION.md) for the new editor selection feature.
 
 ## Validation Features
@@ -84,10 +92,16 @@ The extension provides comprehensive JSONata validation by leveraging the offici
 - **Validate JSONata Selection**: Validates only the selected text
 - **Open JSONata Playground**: Opens the interactive playground
 - **Open JSONata Playground with Selection**: Opens playground with selected text as expression
+- **Populate Playground from Active Editor**: Load content from current editor automatically
+- **Share Playground Session**: Share current playground state as JSON 🆕
+- **Import Playground Session**: Import a shared playground session 🆕
+- **Export Playground to Clipboard**: Quick export to clipboard 🆕
+- **Import Playground from Clipboard**: Quick import from clipboard 🆕
 
 Access these commands via:
 - Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`)
 - Right-click context menu (when editing .jsonata files)
+- Share/Import buttons in the playground results panel 🆕
 
 ### Configuration
 

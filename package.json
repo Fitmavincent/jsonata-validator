@@ -3,7 +3,7 @@
   "publisher": "Fitmavincent",
   "displayName": "jsonata-validator",
   "description": "A jsonata validator extention that can validate jsonata template",
-  "version": "1.3.6",
+  "version": "1.3.7",
   "pricing": "Free",
   "license": "MIT",
   "engines": {
@@ -64,6 +64,30 @@
         "title": "Populate Playground from Active Editor",
         "category": "JSONata",
         "icon": "$(arrow-right)"
+      },
+      {
+        "command": "jsonata-validator.sharePlaygroundSession",
+        "title": "Share JSONata Playground Session",
+        "category": "JSONata",
+        "icon": "$(share)"
+      },
+      {
+        "command": "jsonata-validator.importPlaygroundSession",
+        "title": "Import JSONata Playground Session",
+        "category": "JSONata",
+        "icon": "$(cloud-download)"
+      },
+      {
+        "command": "jsonata-validator.exportPlaygroundToClipboard",
+        "title": "Export Playground Session to Clipboard",
+        "category": "JSONata",
+        "icon": "$(clippy)"
+      },
+      {
+        "command": "jsonata-validator.importPlaygroundFromClipboard",
+        "title": "Import Playground Session from Clipboard",
+        "category": "JSONata",
+        "icon": "$(clippy)"
       }
     ],
     "menus": {
@@ -91,6 +115,14 @@
         {
           "command": "jsonata-validator.populatePlaygroundFromActiveEditor",
           "group": "jsonata"
+        },
+        {
+          "command": "jsonata-validator.sharePlaygroundSession",
+          "group": "jsonata"
+        },
+        {
+          "command": "jsonata-validator.importPlaygroundSession",
+          "group": "jsonata"
         }
       ],
       "commandPalette": [
@@ -103,6 +135,18 @@
         },
         {
           "command": "jsonata-validator.populatePlaygroundFromActiveEditor"
+        },
+        {
+          "command": "jsonata-validator.sharePlaygroundSession"
+        },
+        {
+          "command": "jsonata-validator.importPlaygroundSession"
+        },
+        {
+          "command": "jsonata-validator.exportPlaygroundToClipboard"
+        },
+        {
+          "command": "jsonata-validator.importPlaygroundFromClipboard"
         }
       ]
     },

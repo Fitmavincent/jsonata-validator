@@ -1,6 +1,8 @@
 import * as vscode from 'vscode';
 import { PlaygroundPanel } from './PlaygroundPanel';
 import { ValidationService } from '../validation/ValidationService';
+import { ExportService } from '../share/ExportService';
+import { ImportService } from '../share/ImportService';
 
 /**
  * Provider class that manages the JSONata playground functionality
@@ -32,8 +34,22 @@ export class PlaygroundProvider {
             // If panel already exists, reveal it
             this.currentPanel.reveal();
         } else {
-            // Create new panel
-            this.currentPanel = new PlaygroundPanel(this.context, this.validationService);
+            // Create callback functions for share/import
+            const onShareCallback = async () => {
+                await ExportService.showExportDialog(this);
+            };
+
+            const onImportCallback = async () => {
+                await ImportService.showImportDialog(this);
+            };
+
+            // Create new panel with callbacks
+            this.currentPanel = new PlaygroundPanel(
+                this.context,
+                this.validationService,
+                onShareCallback,
+                onImportCallback
+            );
 
             // Handle panel disposal
             this.currentPanel.onDidDispose(() => {

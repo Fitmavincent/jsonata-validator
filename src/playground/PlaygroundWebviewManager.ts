@@ -54,6 +54,10 @@ export class PlaygroundWebviewManager {
     private disposables: vscode.Disposable[] = [];
     private playgroundDiagnosticCollection: vscode.DiagnosticCollection;
 
+    // Callbacks for share/import functionality
+    private onShareCallback?: () => Promise<void>;
+    private onImportCallback?: () => Promise<void>;
+
     constructor(
         private webview: vscode.Webview,
         private context: vscode.ExtensionContext,
@@ -69,6 +73,13 @@ export class PlaygroundWebviewManager {
      */
     public updateWebviewContent(): void {
         this.webview.html = this.getWebviewContent();
+    }
+
+    /**
+     * Gets the current playground state
+     */
+    public get currentState(): PlaygroundState {
+        return this.state;
     }
 
     /**
@@ -94,6 +105,48 @@ export class PlaygroundWebviewManager {
             case 'getJsonataExpression':
                 this.sendJsonataExpressionToWebview();
                 break;
+            case 'shareSession':
+                this.handleShareSession();
+                break;
+            case 'importSession':
+                this.handleImportSession();
+                break;
+        }
+    }
+
+    /**
+     * Sets the callback for share session functionality
+     */
+    public setOnShareCallback(callback: () => Promise<void>): void {
+        this.onShareCallback = callback;
+    }
+
+    /**
+     * Sets the callback for import session functionality
+     */
+    public setOnImportCallback(callback: () => Promise<void>): void {
+        this.onImportCallback = callback;
+    }
+
+    /**
+     * Handles share session request from webview
+     */
+    private async handleShareSession(): Promise<void> {
+        if (this.onShareCallback) {
+            await this.onShareCallback();
+        } else {
+            vscode.window.showErrorMessage('Share functionality is not available.');
+        }
+    }
+
+    /**
+     * Handles import session request from webview
+     */
+    private async handleImportSession(): Promise<void> {
+        if (this.onImportCallback) {
+            await this.onImportCallback();
+        } else {
+            vscode.window.showErrorMessage('Import functionality is not available.');
         }
     }
 
@@ -670,6 +723,40 @@ export class PlaygroundWebviewManager {
             background-color: var(--vscode-button-hoverBackground);
         }
 
+        .share-controls {
+            display: flex;
+            gap: 8px;
+            margin-left: auto;
+        }
+
+        .share-btn, .import-btn {
+            background-color: var(--vscode-button-secondaryBackground);
+            color: var(--vscode-button-secondaryForeground);
+            border: 1px solid var(--vscode-button-border);
+            padding: 4px 8px;
+            font-size: 11px;
+            border-radius: 2px;
+            cursor: pointer;
+            height: 24px;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            transition: background-color 0.2s;
+        }
+
+        .share-btn:hover, .import-btn:hover {
+            background-color: var(--vscode-button-secondaryHoverBackground);
+        }
+
+        .share-btn:active, .import-btn:active {
+            background-color: var(--vscode-button-secondaryActiveBackground);
+        }
+
+        .share-btn:focus, .import-btn:focus {
+            outline: 1px solid var(--vscode-focusBorder);
+            outline-offset: -1px;
+        }
+
         .container {
             flex: 1;
             display: flex;
@@ -1071,6 +1158,16 @@ export class PlaygroundWebviewManager {
             </select>
         </div>
         <button id="refreshBtn" class="refresh-btn">🔄 Refresh</button>
+        <div class="share-controls">
+            <button id="shareBtn" class="share-btn" title="Share current session">
+                <span>📤</span>
+                <span>Share</span>
+            </button>
+            <button id="importBtn" class="import-btn" title="Import session">
+                <span>📥</span>
+                <span>Import</span>
+            </button>
+        </div>
     </div>
 
     <div class="container">
@@ -1108,6 +1205,8 @@ export class PlaygroundWebviewManager {
             const jsonInputSelect = document.getElementById('jsonInputSelect');
             const templateSelect = document.getElementById('templateSelect');
             const refreshBtn = document.getElementById('refreshBtn');
+            const shareBtn = document.getElementById('shareBtn');
+            const importBtn = document.getElementById('importBtn');
             const copyBtn = document.getElementById('copyBtn');
             const copyIcon = document.getElementById('copyIcon');
             const copyText = document.getElementById('copyText');
@@ -1490,6 +1589,14 @@ export class PlaygroundWebviewManager {
 
             refreshBtn.addEventListener('click', () => {
                 vscode.postMessage({ type: 'refreshEditors' });
+            });
+
+            shareBtn.addEventListener('click', () => {
+                vscode.postMessage({ type: 'shareSession' });
+            });
+
+            importBtn.addEventListener('click', () => {
+                vscode.postMessage({ type: 'importSession' });
             });
 
             copyBtn.addEventListener('click', copyToClipboard);
