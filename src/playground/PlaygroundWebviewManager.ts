@@ -64,8 +64,48 @@ export class PlaygroundWebviewManager {
         private validationService?: ValidationService
     ) {
         this.playgroundDiagnosticCollection = vscode.languages.createDiagnosticCollection('jsonata-playground');
-        this.evaluateExpression();
+
+        // Initialize state first, then set up listeners
+        this.initializeState();
         this.setupDocumentChangeListeners();
+        this.evaluateExpression();
+    }
+
+    /**
+     * Initializes the playground state, restoring from context state if available
+     */
+    private initializeState(): void {
+        // Try to restore state from context
+        const savedState = this.context.workspaceState.get<Partial<PlaygroundState>>('playgroundWebviewState');
+        if (savedState && savedState.selectedJsonInputEditor !== undefined) {
+            // Restore saved state but keep current default values for content
+            this.state = {
+                ...this.state,
+                selectedJsonInputEditor: savedState.selectedJsonInputEditor ?? null,
+                selectedTemplateEditor: savedState.selectedTemplateEditor ?? null
+            };
+
+            // Validate that selected editors are still available and update content
+            this.updateAvailableEditors();
+            this.validateSelectedEditors();
+
+            // If we have selected editors, update content from them
+            if (this.state.selectedJsonInputEditor) {
+                const content = this.getEditorContent(this.state.selectedJsonInputEditor);
+                if (content !== null) {
+                    this.state.jsonInput = content;
+                }
+            }
+            if (this.state.selectedTemplateEditor) {
+                const content = this.getEditorContent(this.state.selectedTemplateEditor);
+                if (content !== null) {
+                    this.state.jsonataExpression = content;
+                }
+            }
+        } else {
+            // Initialize with fresh state
+            this.updateAvailableEditors();
+        }
     }
 
     /**
@@ -88,6 +128,9 @@ export class PlaygroundWebviewManager {
     public handleMessage(message: WebviewMessage): void {
         switch (message.type) {
             case 'requestState':
+                // Force refresh everything when state is requested
+                this.updateAvailableEditors();
+                this.validateSelectedEditors();
                 this.sendStateToWebview();
                 break;
             case 'selectJsonInputEditor':
@@ -97,7 +140,23 @@ export class PlaygroundWebviewManager {
                 this.selectTemplateEditor(message.data.editorId);
                 break;
             case 'refreshEditors':
+                // Manual refresh - force update everything
                 this.updateAvailableEditors();
+                this.validateSelectedEditors();
+                // Re-sync content from selected editors
+                if (this.state.selectedJsonInputEditor) {
+                    const content = this.getEditorContent(this.state.selectedJsonInputEditor);
+                    if (content !== null) {
+                        this.state.jsonInput = content;
+                    }
+                }
+                if (this.state.selectedTemplateEditor) {
+                    const content = this.getEditorContent(this.state.selectedTemplateEditor);
+                    if (content !== null) {
+                        this.state.jsonataExpression = content;
+                    }
+                }
+                this.evaluateExpression();
                 break;
             case 'copyResult':
                 this.copyResultToClipboard();
@@ -167,6 +226,14 @@ export class PlaygroundWebviewManager {
      * Called when the panel becomes visible
      */
     public onPanelVisible(): void {
+        // Force refresh the available editors and validate selections
+        this.updateAvailableEditors();
+        this.validateSelectedEditors();
+
+        // Re-evaluate expression to ensure fresh results
+        this.evaluateExpression();
+
+        // Send current state to webview
         this.sendStateToWebview();
     }
 
@@ -234,6 +301,9 @@ export class PlaygroundWebviewManager {
      * Disposes resources
      */
     public dispose(): void {
+        // Clear saved state on disposal
+        this.context.workspaceState.update('playgroundWebviewState', undefined);
+
         // Clean up any resources if needed
         this.disposables.forEach(disposable => disposable.dispose());
         this.playgroundDiagnosticCollection.dispose();
@@ -622,6 +692,12 @@ export class PlaygroundWebviewManager {
     }
 
     private sendStateToWebview(): void {
+        // Save state to workspace state for persistence
+        this.context.workspaceState.update('playgroundWebviewState', {
+            selectedJsonInputEditor: this.state.selectedJsonInputEditor,
+            selectedTemplateEditor: this.state.selectedTemplateEditor
+        });
+
         this.webview.postMessage({
             type: 'updateState',
             data: this.state
@@ -1765,16 +1841,28 @@ export class PlaygroundWebviewManager {
      * Sets up listeners for document changes to update live evaluation
      */
     private setupDocumentChangeListeners(): void {
+        let evaluationTimeout: NodeJS.Timeout | undefined;
+
+        // Debounced evaluation function to prevent excessive calls
+        const debouncedEvaluate = () => {
+            if (evaluationTimeout) {
+                clearTimeout(evaluationTimeout);
+            }
+            evaluationTimeout = setTimeout(() => {
+                this.evaluateExpression();
+            }, 300); // 300ms debounce
+        };
+
         const changeDisposable = vscode.workspace.onDidChangeTextDocument((event) => {
             // Check if the changed document is one of our selected editors
             const documentUri = event.document.uri.toString();
 
             if (this.state.selectedJsonInputEditor === documentUri) {
                 this.state.jsonInput = event.document.getText();
-                this.evaluateExpression();
+                debouncedEvaluate();
             } else if (this.state.selectedTemplateEditor === documentUri) {
                 this.state.jsonataExpression = event.document.getText();
-                this.evaluateExpression();
+                debouncedEvaluate();
             }
         });
         this.disposables.push(changeDisposable);
@@ -1826,6 +1914,15 @@ export class PlaygroundWebviewManager {
             this.updateAvailableEditors();
         });
         this.disposables.push(closeDisposable);
+
+        // Listen for when text documents are opened (to catch new editors)
+        const openDisposable = vscode.workspace.onDidOpenTextDocument(() => {
+            // Small delay to allow the tab to be fully registered
+            setTimeout(() => {
+                this.updateAvailableEditors();
+            }, 100);
+        });
+        this.disposables.push(openDisposable);
     }
 
     /**
@@ -1833,16 +1930,22 @@ export class PlaygroundWebviewManager {
      */
     private validateSelectedEditors(): void {
         const availableEditorIds = this.state.availableEditors.map(e => e.id);
+        let stateChanged = false;
 
         if (this.state.selectedJsonInputEditor && !availableEditorIds.includes(this.state.selectedJsonInputEditor)) {
             this.state.selectedJsonInputEditor = null;
             this.state.jsonInput = '{\n  "example": [\n    {"value": 4},\n    {"value": 7},\n    {"value": 13}\n  ]\n}';
-            this.evaluateExpression();
+            stateChanged = true;
         }
 
         if (this.state.selectedTemplateEditor && !availableEditorIds.includes(this.state.selectedTemplateEditor)) {
             this.state.selectedTemplateEditor = null;
             this.state.jsonataExpression = 'example[value > 5].value';
+            stateChanged = true;
+        }
+
+        // If state changed, re-evaluate and update webview
+        if (stateChanged) {
             this.evaluateExpression();
         }
     }
