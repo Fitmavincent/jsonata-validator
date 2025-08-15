@@ -555,33 +555,9 @@ export class PlaygroundWebviewManager {
 
         if (targetUri) {
             this.playgroundDiagnosticCollection.set(targetUri, [diagnostic]);
-
-            // Also highlight the error in the editor if possible
-            this.highlightErrorInEditor(targetUri, errorDetails);
-        }
-    }
-
-    /**
-     * Highlights the error in the editor by setting selection/cursor position
-     */
-    private highlightErrorInEditor(uri: vscode.Uri, errorDetails: ErrorDetails): void {
-        if (errorDetails.line === undefined || errorDetails.character === undefined) {
-            return;
-        }
-
-        const editor = vscode.window.visibleTextEditors.find(e => e.document.uri.toString() === uri.toString());
-        if (editor) {
-            const position = new vscode.Position(errorDetails.line, errorDetails.character);
-            let endPosition = position;
-
-            // If we have a token, select the entire token
-            if (errorDetails.token && errorDetails.token !== '(end)') {
-                endPosition = new vscode.Position(errorDetails.line, errorDetails.character + errorDetails.token.length);
-            }
-
-            const range = new vscode.Range(position, endPosition);
-            editor.selection = new vscode.Selection(range.start, range.end);
-            editor.revealRange(range, vscode.TextEditorRevealType.InCenterIfOutsideViewport);
+            // Note: We no longer force cursor movement to the error location
+            // This allows users to continue editing without cursor interference
+            // while still showing error highlights via the diagnostic system
         }
     }
 

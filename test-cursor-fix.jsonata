@@ -1,0 +1,2 @@
+// Test JSONata expression with intentional error
+users[department = "Engineering"(.name
