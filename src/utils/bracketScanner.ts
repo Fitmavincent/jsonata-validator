@@ -57,15 +57,3 @@ export class BracketScanner {
 		this.mismatched = false;
 	}
 }
-
-/**
- * Check if a JSONata expression appears to be complete
- * This is a heuristic check for basic bracket/parentheses matching
- */
-export function isCompleteExpression(expression: string): boolean {
-	const scanner = new BracketScanner();
-	for (const line of expression.split('\n')) {
-		scanner.scanLine(line);
-	}
-	return scanner.isBalanced;
-}

@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { extractJsonataExpressionsFromPureJsonata } from './expressionExtractor';
 import { getValidatorConfiguration } from '../utils/configuration';
+import { isJsonataFile } from '../utils/jsonataUtils';
 import { compileExpression } from '../utils/expressionCache';
 
 /**
@@ -10,18 +11,11 @@ export class ValidationService {
     constructor(private diagnosticCollection: vscode.DiagnosticCollection) {}
 
     /**
-     * Check if a document is a JSONata file
-     */
-    private isJsonataFile(document: vscode.TextDocument): boolean {
-        return document.languageId === 'jsonata' || document.fileName.endsWith('.jsonata');
-    }
-
-    /**
      * Validate an entire document
      */
     public validateDocument(document: vscode.TextDocument): void {
         // Only validate .jsonata files
-        if (!this.isJsonataFile(document)) {
+        if (!isJsonataFile(document)) {
             // Clear any existing diagnostics for non-jsonata files
             this.diagnosticCollection.set(document.uri, []);
             return;
@@ -37,7 +31,7 @@ export class ValidationService {
      */
     public validateSelection(document: vscode.TextDocument, selectedText: string, selection: vscode.Selection): void {
         // Only validate selections in JSONata files
-        if (!this.isJsonataFile(document)) {
+        if (!isJsonataFile(document)) {
             vscode.window.showWarningMessage('Selection validation is only available for .jsonata files');
             return;
         }
@@ -61,7 +55,7 @@ export class ValidationService {
         const maxProblems = getValidatorConfiguration().maxNumberOfProblems;
 
         // Only validate JSONata files
-        if (!this.isJsonataFile(document)) {
+        if (!isJsonataFile(document)) {
             return diagnostics;
         }
 

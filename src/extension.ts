@@ -5,7 +5,7 @@ import { PlaygroundProvider } from './playground/PlaygroundProvider';
 import { ValidationService } from './validation/ValidationService';
 import { isJsonataFile } from './utils/jsonataUtils';
 import { getValidatorConfiguration, registerConfigurationWatcher } from './utils/configuration';
-import { KeyedDebouncer } from './utils/debounce';
+import { Debouncer } from './utils/debounce';
 import { ExportService } from './share/ExportService';
 import { ImportService } from './share/ImportService';
 
@@ -102,7 +102,7 @@ export function activate(context: vscode.ExtensionContext) {
 	});
 
 	// Register event listeners
-	const validationDebouncer = new KeyedDebouncer<string>(VALIDATION_DEBOUNCE_MS);
+	const validationDebouncer = new Debouncer(VALIDATION_DEBOUNCE_MS);
 
 	const configurationWatcher = registerConfigurationWatcher();
 
@@ -113,9 +113,7 @@ export function activate(context: vscode.ExtensionContext) {
 
 		// Collapse a burst of keystrokes into a single validation pass
 		const document = event.document;
-		validationDebouncer.schedule(document.uri.toString(), () => {
-			validationService.validateDocument(document);
-		});
+		validationDebouncer.schedule(() => validationService.validateDocument(document), document.uri.toString());
 	});
 
 	const onDidSaveTextDocument = vscode.workspace.onDidSaveTextDocument(document => {

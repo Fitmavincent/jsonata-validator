@@ -53,22 +53,7 @@ export class PlaygroundProvider {
         }
     }
 
-    /**
-     * Closes the playground panel if it exists
-     */
-    public closePlayground(): void {
-        if (this.currentPanel) {
-            this.currentPanel.dispose();
-            this.currentPanel = undefined;
-        }
-    }
 
-    /**
-     * Checks if the playground is currently open
-     */
-    public isPlaygroundOpen(): boolean {
-        return this.currentPanel !== undefined;
-    }
 
     /**
      * Gets the current playground panel instance

@@ -350,17 +350,14 @@ export class PlaygroundWebviewManager {
         const editors = this.getOpenEditors();
 
         // Tab events fire far more often than the list actually changes, and
-        // rebuilding the dropdowns resets the user's selection mid-interaction
-        if (this.editorListSignature(editors) === this.editorListSignature(this.state.availableEditors)) {
+        // rebuilding the dropdowns resets the user's selection mid-interaction.
+        // The entries are plain data built at one site, so key order is stable.
+        if (JSON.stringify(editors) === JSON.stringify(this.state.availableEditors)) {
             return;
         }
 
         this.state.availableEditors = editors;
         this.sendStateToWebview();
-    }
-
-    private editorListSignature(editors: EditorInfo[]): string {
-        return editors.map(e => `${e.id} ${e.fileName} ${e.language} ${e.isDirty}`).join('');
     }
 
     /**
@@ -726,7 +723,10 @@ export class PlaygroundWebviewManager {
     private sendStateToWebview(): void {
         // Persist the editor selection, but only when it actually changed;
         // workspace state is backed by storage and this runs on every edit
-        const selection = `${this.state.selectedJsonInputEditor} ${this.state.selectedTemplateEditor}`;
+        const selection = JSON.stringify([
+            this.state.selectedJsonInputEditor,
+            this.state.selectedTemplateEditor
+        ]);
         if (selection !== this.persistedSelection) {
             this.persistedSelection = selection;
             this.context.workspaceState.update('playgroundWebviewState', {

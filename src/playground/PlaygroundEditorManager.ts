@@ -103,13 +103,7 @@ export class PlaygroundEditorManager {
         }
     }
 
-    public getJsonInputContent(): string {
-        return this.jsonInputDocument?.getText() || '';
-    }
 
-    public getJsonataExpressionContent(): string {
-        return this.jsonataExpressionDocument?.getText() || '';
-    }
 
     public dispose(): void {
         // Close the documents by closing their tabs

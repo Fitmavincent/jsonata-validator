@@ -47,10 +47,3 @@ export function compileExpression(source: string): CompileResult {
 
 	return result;
 }
-
-/**
- * Drops every cached expression. Exposed for tests and extension teardown.
- */
-export function clearExpressionCache(): void {
-	cache.clear();
-}

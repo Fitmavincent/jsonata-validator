@@ -260,10 +260,4 @@ export class PlaygroundPanel {
         }
     }
 
-    /**
-     * Manually reorganizes the layout to the desired 3-panel structure
-     */
-    public async reorganizeLayout(): Promise<void> {
-        await this.ensureProperLayout();
-    }
 }

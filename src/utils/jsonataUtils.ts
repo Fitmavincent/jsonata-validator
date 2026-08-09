@@ -1,7 +1,5 @@
 import * as vscode from 'vscode';
 
-export { BracketScanner, isCompleteExpression } from './bracketScanner';
-
 /**
  * Check if a document is a JSONata file
  */

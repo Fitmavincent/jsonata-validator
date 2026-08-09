@@ -162,59 +162,5 @@ export class ExportService {
         return await this.exportCurrentSession(playgroundProvider, 'clipboard');
     }
 
-    /**
-     * Quick export to file with minimal UI
-     */
-    public static async quickExportToFile(playgroundProvider: PlaygroundProvider): Promise<boolean> {
-        return await this.exportCurrentSession(playgroundProvider, 'file');
-    }
 
-    /**
-     * Creates a preview of what will be exported
-     */
-    public static async showExportPreview(playgroundProvider: PlaygroundProvider): Promise<void> {
-        const playground = playgroundProvider.getCurrentPlayground();
-        if (!playground) {
-            vscode.window.showErrorMessage('No playground is currently open.');
-            return;
-        }
-
-        const sessionData = this.extractSessionData(playground);
-        if (!sessionData) {
-            vscode.window.showErrorMessage('Failed to extract playground data.');
-            return;
-        }
-
-        const session = ShareService.createShareableSession(
-            sessionData.jsonInput,
-            sessionData.jsonataExpression,
-            sessionData.result,
-            sessionData.hasError,
-            sessionData.errorMessage,
-            'Preview Session'
-        );
-
-        const sessionString = ShareService.sessionToShareableString(session);
-
-        // Show preview in a new document
-        const doc = await vscode.workspace.openTextDocument({
-            content: sessionString,
-            language: 'json'
-        });
-
-        await vscode.window.showTextDocument(doc, {
-            preview: true,
-            viewColumn: vscode.ViewColumn.Beside
-        });
-
-        vscode.window.showInformationMessage(
-            'Session preview opened. You can copy this content to share with others.',
-            'Copy to Clipboard'
-        ).then(async (selection) => {
-            if (selection === 'Copy to Clipboard') {
-                await ShareService.copyToClipboard(sessionString);
-                vscode.window.showInformationMessage('Session copied to clipboard!');
-            }
-        });
-    }
 }
