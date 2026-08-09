@@ -10,7 +10,7 @@ export class PlaygroundEditorManager {
     private onJsonInputChangeCallback?: (content: string) => void;
     private onJsonataExpressionChangeCallback?: (content: string) => void;
 
-    constructor(private context: vscode.ExtensionContext) {
+    constructor() {
         this.setupDocumentChangeListeners();
     }
 

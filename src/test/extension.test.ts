@@ -1,25 +1,30 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
-import * as path from 'path';
 
-// Import our extension module
-import * as myExtension from '../extension';
+/**
+ * Resolves the extension under test. The published identifier is
+ * `<publisher>.<name>`; a source checkout without a publisher falls back to
+ * `undefined_publisher`.
+ */
+function getExtension(): vscode.Extension<unknown> | undefined {
+	return vscode.extensions.getExtension('Fitmavincent.jsonata-validator') ||
+		   vscode.extensions.getExtension('undefined_publisher.jsonata-validator');
+}
 
 suite('JSONata Validator Extension Test Suite', () => {
 	vscode.window.showInformationMessage('Starting JSONata Validator tests.');
 
 	setup(async () => {
-		// Ensure extension is activated
-		const extension = vscode.extensions.getExtension('undefined_publisher.jsonata-validator');
+		// Ensure extension is activated. It activates on the jsonata language,
+		// so commands are not registered until this runs.
+		const extension = getExtension();
 		if (extension && !extension.isActive) {
 			await extension.activate();
 		}
 	});
+
 	test('Extension should be present', () => {
-		// Extension might not have a publisher defined in development
-		const extension = vscode.extensions.getExtension('undefined_publisher.jsonata-validator') ||
-						  vscode.extensions.getExtension('jsonata-validator');
-		assert.ok(extension, 'Extension should be loaded');
+		assert.ok(getExtension(), 'Extension should be loaded');
 	});
 
 	test('Should register commands', async () => {

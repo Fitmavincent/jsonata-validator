@@ -1,8 +1,18 @@
 import * as vscode from 'vscode';
-import jsonata from 'jsonata';
-import { ValidationService } from '../validation/ValidationService';
+import { Debouncer } from '../utils/debounce';
+import { compileExpression } from '../utils/expressionCache';
 
-interface PlaygroundState {
+/** Content the playground starts with, and falls back to when a source closes */
+export const DEFAULT_JSON_INPUT = '{\n  "example": [\n    {"value": 4},\n    {"value": 7},\n    {"value": 13}\n  ]\n}';
+export const DEFAULT_JSONATA_EXPRESSION = 'example[value > 5].value';
+
+/** How long input has to settle before the expression is re-evaluated */
+const EVALUATION_DEBOUNCE_MS = 200;
+
+/** How long tab churn has to settle before the editor list is rebuilt */
+const EDITOR_LIST_DEBOUNCE_MS = 100;
+
+export interface PlaygroundState {
     jsonInput: string;
     jsonataExpression: string;
     result: string;
@@ -42,8 +52,8 @@ interface WebviewMessage {
  */
 export class PlaygroundWebviewManager {
     private state: PlaygroundState = {
-        jsonInput: '{\n  "example": [\n    {"value": 4},\n    {"value": 7},\n    {"value": 13}\n  ]\n}',
-        jsonataExpression: 'example[value > 5].value',
+        jsonInput: DEFAULT_JSON_INPUT,
+        jsonataExpression: DEFAULT_JSONATA_EXPRESSION,
         result: '',
         error: null,
         errorDetails: null,
@@ -53,6 +63,14 @@ export class PlaygroundWebviewManager {
     };
     private disposables: vscode.Disposable[] = [];
     private playgroundDiagnosticCollection: vscode.DiagnosticCollection;
+    private readonly evaluationDebouncer = new Debouncer(EVALUATION_DEBOUNCE_MS);
+    private readonly editorListDebouncer = new Debouncer(EDITOR_LIST_DEBOUNCE_MS);
+
+    // Incremented per evaluation so a slow run cannot overwrite a newer result
+    private evaluationGeneration = 0;
+
+    // Last values written to workspace state, to avoid redundant writes
+    private persistedSelection = '';
 
     // Callbacks for share/import functionality
     private onShareCallback?: () => Promise<void>;
@@ -60,8 +78,7 @@ export class PlaygroundWebviewManager {
 
     constructor(
         private webview: vscode.Webview,
-        private context: vscode.ExtensionContext,
-        private validationService?: ValidationService
+        private context: vscode.ExtensionContext
     ) {
         this.playgroundDiagnosticCollection = vscode.languages.createDiagnosticCollection('jsonata-playground');
 
@@ -241,22 +258,30 @@ export class PlaygroundWebviewManager {
      * Updates the JSON input and triggers evaluation
      */
     public updateJsonInput(jsonData: string): void {
+        if (this.state.jsonInput === jsonData) {
+            return;
+        }
+
         // Clear diagnostics when JSON input changes (in case it affects runtime errors)
         this.clearTemplateDiagnostics();
 
         this.state.jsonInput = jsonData;
-        this.evaluateExpression();
+        this.scheduleEvaluation();
     }
 
     /**
      * Updates the JSONata expression and triggers evaluation
      */
     public updateJsonataExpression(expression: string): void {
+        if (this.state.jsonataExpression === expression) {
+            return;
+        }
+
         // Clear diagnostics when the expression changes
         this.clearTemplateDiagnostics();
 
         this.state.jsonataExpression = expression;
-        this.evaluateExpression();
+        this.scheduleEvaluation();
     }
 
     /**
@@ -271,8 +296,13 @@ export class PlaygroundWebviewManager {
      */
     public setJsonInput(jsonData: string): void {
         this.updateJsonInput(jsonData);
-        this.evaluateExpression();
-        this.sendStateToWebview();
+    }
+
+    /**
+     * Queues an evaluation, collapsing bursts of edits into a single run
+     */
+    private scheduleEvaluation(): void {
+        this.evaluationDebouncer.schedule(() => this.evaluateExpression());
     }
 
     /**
@@ -304,8 +334,12 @@ export class PlaygroundWebviewManager {
         // Clear saved state on disposal
         this.context.workspaceState.update('playgroundWebviewState', undefined);
 
-        // Clean up any resources if needed
+        // Drop pending work so nothing runs against a disposed panel
+        this.evaluationDebouncer.dispose();
+        this.editorListDebouncer.dispose();
+
         this.disposables.forEach(disposable => disposable.dispose());
+        this.disposables.length = 0;
         this.playgroundDiagnosticCollection.dispose();
     }
 
@@ -313,8 +347,20 @@ export class PlaygroundWebviewManager {
      * Updates the list of available editors
      */
     public updateAvailableEditors(): void {
-        this.state.availableEditors = this.getOpenEditors();
+        const editors = this.getOpenEditors();
+
+        // Tab events fire far more often than the list actually changes, and
+        // rebuilding the dropdowns resets the user's selection mid-interaction
+        if (this.editorListSignature(editors) === this.editorListSignature(this.state.availableEditors)) {
+            return;
+        }
+
+        this.state.availableEditors = editors;
         this.sendStateToWebview();
+    }
+
+    private editorListSignature(editors: EditorInfo[]): string {
+        return editors.map(e => `${e.id} ${e.fileName} ${e.language} ${e.isDirty}`).join('');
     }
 
     /**
@@ -351,6 +397,10 @@ export class PlaygroundWebviewManager {
     }
 
     private async evaluateExpression(): Promise<void> {
+        // Evaluation is asynchronous, so a long-running expression can still be
+        // in flight when the next edit arrives. Only the newest run may publish.
+        const generation = ++this.evaluationGeneration;
+
         try {
             // Reset error state and clear diagnostics
             this.state.error = null;
@@ -373,13 +423,12 @@ export class PlaygroundWebviewManager {
                 return;
             }
 
-            // Compile JSONata expression
-            let expression: any;
-            try {
-                expression = jsonata(this.state.jsonataExpression);
-            } catch (error: any) {
+            // Compile JSONata expression (reusing the previous compile when the
+            // expression is unchanged and only the JSON input moved)
+            const compiled = compileExpression(this.state.jsonataExpression);
+            if (!compiled.ok) {
                 // Enhanced error handling for compilation errors
-                const errorDetails = this.createDetailedErrorInfo(error, 'compilation');
+                const errorDetails = this.createDetailedErrorInfo(compiled.error, 'compilation');
                 this.state.error = this.formatErrorMessage(errorDetails);
                 this.state.errorDetails = errorDetails;
                 this.state.result = '';
@@ -393,9 +442,16 @@ export class PlaygroundWebviewManager {
 
             // Evaluate expression
             try {
-                const result = await expression.evaluate(jsonData);
+                const result = await compiled.expression.evaluate(jsonData);
+                if (generation !== this.evaluationGeneration) {
+                    return; // Superseded by a newer edit
+                }
                 this.state.result = JSON.stringify(result, null, 2);
             } catch (error: any) {
+                if (generation !== this.evaluationGeneration) {
+                    return; // Superseded by a newer edit
+                }
+
                 // Enhanced error handling for runtime errors
                 const errorDetails = this.createDetailedErrorInfo(error, 'runtime');
                 this.state.error = this.formatErrorMessage(errorDetails);
@@ -668,17 +724,24 @@ export class PlaygroundWebviewManager {
     }
 
     private sendStateToWebview(): void {
-        // Save state to workspace state for persistence
-        this.context.workspaceState.update('playgroundWebviewState', {
-            selectedJsonInputEditor: this.state.selectedJsonInputEditor,
-            selectedTemplateEditor: this.state.selectedTemplateEditor
-        });
+        // Persist the editor selection, but only when it actually changed;
+        // workspace state is backed by storage and this runs on every edit
+        const selection = `${this.state.selectedJsonInputEditor} ${this.state.selectedTemplateEditor}`;
+        if (selection !== this.persistedSelection) {
+            this.persistedSelection = selection;
+            this.context.workspaceState.update('playgroundWebviewState', {
+                selectedJsonInputEditor: this.state.selectedJsonInputEditor,
+                selectedTemplateEditor: this.state.selectedTemplateEditor
+            });
+        }
 
         this.webview.postMessage({
             type: 'updateState',
             data: this.state
         });
-    }    private getWebviewContent(): string {
+    }
+
+    private getWebviewContent(): string {
         const nonce = this.generateNonce();
 
         return `<!DOCTYPE html>
@@ -1264,6 +1327,7 @@ export class PlaygroundWebviewManager {
             const copyText = document.getElementById('copyText');
 
             let currentResultText = '';
+            let currentErrorDetails = null;
 
             // Detect and set theme
             function setTheme() {
@@ -1289,57 +1353,52 @@ export class PlaygroundWebviewManager {
                 statusText.className = 'status-item ' + (isError ? 'status-error' : 'status-success');
             }
 
+            // One JSON token: a string (a property name when a colon follows),
+            // a keyword, or a number.
+            const JSON_TOKEN = /("(?:\\\\.|[^"\\\\])*")(\\s*:)?|\\b(true|false|null)\\b|(-?\\d+(?:\\.\\d+)?(?:[eE][+-]?\\d+)?)/g;
+
+            function highlightPunctuation(escapedText) {
+                return escapedText.replace(/([{}\\[\\],])/g, '<span class="json-punctuation">$1</span>');
+            }
+
             function highlightJson(jsonString) {
                 if (!jsonString || jsonString.trim() === '') {
                     return '';
                 }
 
+                let source = jsonString;
                 try {
-                    // First, try to parse and re-stringify to ensure it's valid JSON
-                    const parsed = JSON.parse(jsonString);
-                    const formatted = JSON.stringify(parsed, null, 2);
-
-                    // Use a more straightforward approach for highlighting
-                    return formatted
-                        .split('\\n')
-                        .map(line => {
-                            // Property names (keys)
-                            line = line.replace(/("(?:[^"\\\\]|\\\\.)*")(\s*:)/g, '<span class="json-key">$1</span>$2');
-
-                            // String values
-                            line = line.replace(/:(\s*)("(?:[^"\\\\]|\\\\.)*")/g, ':$1<span class="json-string">$2</span>');
-
-                            // Numbers
-                            line = line.replace(/:(\s*)(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)/g, ':$1<span class="json-number">$2</span>');
-
-                            // Booleans
-                            line = line.replace(/:(\s*)(true|false)\\b/g, ':$1<span class="json-boolean">$2</span>');
-
-                            // Null values
-                            line = line.replace(/:(\s*)(null)\\b/g, ':$1<span class="json-null">$2</span>');
-
-                            // Punctuation
-                            line = line.replace(/([{}\\[\\],])/g, '<span class="json-punctuation">$1</span>');
-
-                            return line;
-                        })
-                        .join('\\n');
+                    // Re-stringify so the panel formats results consistently
+                    source = JSON.stringify(JSON.parse(jsonString), null, 2);
                 } catch (e) {
-                    // If it's not valid JSON, check if it's a simple value and highlight accordingly
-                    const trimmed = jsonString.trim();
-                    if (trimmed.match(/^".*"$/)) {
-                        return '<span class="json-string">' + jsonString + '</span>';
-                    } else if (trimmed.match(/^-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?$/)) {
-                        return '<span class="json-number">' + jsonString + '</span>';
-                    } else if (trimmed.match(/^(true|false)$/)) {
-                        return '<span class="json-boolean">' + jsonString + '</span>';
-                    } else if (trimmed.match(/^null$/)) {
-                        return '<span class="json-null">' + jsonString + '</span>';
+                    // Not JSON (a bare string or number result) - highlight as-is
+                }
+
+                // Every fragment is escaped before being concatenated, so a
+                // result containing markup renders as text instead of HTML.
+                let html = '';
+                let lastIndex = 0;
+                let match;
+
+                JSON_TOKEN.lastIndex = 0;
+                while ((match = JSON_TOKEN.exec(source)) !== null) {
+                    html += highlightPunctuation(escapeHtml(source.slice(lastIndex, match.index)));
+
+                    if (match[1] !== undefined) {
+                        const cssClass = match[2] !== undefined ? 'json-key' : 'json-string';
+                        html += '<span class="' + cssClass + '">' + escapeHtml(match[1]) + '</span>' +
+                            escapeHtml(match[2] || '');
+                    } else if (match[3] !== undefined) {
+                        const cssClass = match[3] === 'null' ? 'json-null' : 'json-boolean';
+                        html += '<span class="' + cssClass + '">' + match[3] + '</span>';
+                    } else {
+                        html += '<span class="json-number">' + match[4] + '</span>';
                     }
 
-                    // If none of the above, return as is (might be a complex result)
-                    return jsonString;
+                    lastIndex = match.index + match[0].length;
                 }
+
+                return html + highlightPunctuation(escapeHtml(source.slice(lastIndex)));
             }
 
             function copyToClipboard() {
@@ -1408,13 +1467,6 @@ export class PlaygroundWebviewManager {
                 availableEditors.forEach(editor => {
                     const option = document.createElement('option');
                     option.value = editor.id;
-                    option.innerHTML = \`
-                        <span class="editor-option">
-                            \${editor.fileName}
-                            <span class="editor-language">\${editor.language}</span>
-                            \${editor.isDirty ? '<span class="editor-dirty">●</span>' : ''}
-                        </span>
-                    \`;
                     option.textContent = \`\${editor.fileName} (\${editor.language})\${editor.isDirty ? ' ●' : ''}\`;
 
                     jsonInputSelect.appendChild(option.cloneNode(true));
@@ -1428,6 +1480,7 @@ export class PlaygroundWebviewManager {
 
             function handleStateUpdate(state) {
                 populateEditorSelects(state.availableEditors, state.selectedJsonInputEditor, state.selectedTemplateEditor);
+                currentErrorDetails = state.errorDetails;
 
                 if (state.error) {
                     error.innerHTML = formatError(state.error, state.errorDetails);
@@ -1441,12 +1494,7 @@ export class PlaygroundWebviewManager {
                     currentResultText = state.result;
 
                     // Apply JSON highlighting
-                    const highlightedResult = highlightJson(state.result);
-                    result.innerHTML = highlightedResult;
-
-                    // Debug: log the result to console to see what we're working with
-                    console.log('Result text:', state.result);
-                    console.log('Highlighted result:', highlightedResult);
+                    result.innerHTML = highlightJson(state.result);
 
                     // Show/hide and enable/disable copy button based on result
                     if (currentResultText) {
@@ -1474,7 +1522,7 @@ export class PlaygroundWebviewManager {
                             <span>Error</span>
                         </div>
                         <div class="error-actions">
-                            <button class="error-action-btn" onclick="copyErrorDetails('\${escapeHtml(JSON.stringify(errorDetails))}')">📋 Copy</button>
+                            <button class="error-action-btn" id="copyErrorBtn">📋 Copy</button>
                         </div>
                     </div>
                     <div class="error-message">\${escapeHtml(errorDetails.message)}</div>
@@ -1520,46 +1568,50 @@ export class PlaygroundWebviewManager {
                 return html;
             }
 
-            function copyErrorDetails(errorDetailsJson) {
-                try {
-                    const errorDetails = JSON.parse(errorDetailsJson);
-                    let errorText = \`JSONata \${errorDetails.type} Error\\n\`;
-                    errorText += \`Message: \${errorDetails.message}\\n\`;
-
-                    if (errorDetails.line !== undefined && errorDetails.character !== undefined) {
-                        errorText += \`Location: Line \${errorDetails.line + 1}, Character \${errorDetails.character + 1}\\n\`;
-                    }
-
-                    if (errorDetails.code) {
-                        errorText += \`Code: \${errorDetails.code}\\n\`;
-                    }
-
-                    if (errorDetails.token) {
-                        errorText += \`Token: '\${errorDetails.token}'\\n\`;
-                    }
-
-                    if (errorDetails.value && errorDetails.value !== errorDetails.token) {
-                        errorText += \`Expected: '\${errorDetails.value}'\\n\`;
-                    }
-
-                    navigator.clipboard.writeText(errorText).then(() => {
-                        // Show temporary feedback
-                        const btn = event.target;
-                        const originalText = btn.textContent;
-                        btn.textContent = '✓ Copied';
-                        setTimeout(() => {
-                            btn.textContent = originalText;
-                        }, 1500);
-                    }).catch(err => {
-                        console.error('Failed to copy error details:', err);
-                    });
-                } catch (err) {
-                    console.error('Failed to parse error details:', err);
+            function copyErrorDetails(errorDetails, button) {
+                if (!errorDetails) {
+                    return;
                 }
+
+                let errorText = \`JSONata \${errorDetails.type} Error\\n\`;
+                errorText += \`Message: \${errorDetails.message}\\n\`;
+
+                if (errorDetails.line !== undefined && errorDetails.character !== undefined) {
+                    errorText += \`Location: Line \${errorDetails.line + 1}, Character \${errorDetails.character + 1}\\n\`;
+                }
+
+                if (errorDetails.code) {
+                    errorText += \`Code: \${errorDetails.code}\\n\`;
+                }
+
+                if (errorDetails.token) {
+                    errorText += \`Token: '\${errorDetails.token}'\\n\`;
+                }
+
+                if (errorDetails.value && errorDetails.value !== errorDetails.token) {
+                    errorText += \`Expected: '\${errorDetails.value}'\\n\`;
+                }
+
+                navigator.clipboard.writeText(errorText).then(() => {
+                    // Show temporary feedback
+                    const originalText = button.textContent;
+                    button.textContent = '✓ Copied';
+                    setTimeout(() => {
+                        button.textContent = originalText;
+                    }, 1500);
+                }).catch(err => {
+                    console.error('Failed to copy error details:', err);
+                });
             }
 
-            // Make copyErrorDetails globally available
-            window.copyErrorDetails = copyErrorDetails;
+            // Delegated: the error panel is re-rendered on every evaluation, and
+            // the page's CSP rules out inline onclick handlers.
+            error.addEventListener('click', (event) => {
+                const button = event.target.closest('.error-action-btn');
+                if (button) {
+                    copyErrorDetails(currentErrorDetails, button);
+                }
+            });
 
             function formatCodeSnippetWithError(errorDetails) {
                 // Get the current JSONata expression from the webview state
@@ -1616,7 +1668,7 @@ export class PlaygroundWebviewManager {
             }
 
             function escapeHtml(unsafe) {
-                return unsafe
+                return String(unsafe === undefined || unsafe === null ? '' : unsafe)
                     .replace(/&/g, "&amp;")
                     .replace(/</g, "&lt;")
                     .replace(/>/g, "&gt;")
@@ -1723,75 +1775,77 @@ export class PlaygroundWebviewManager {
      * Gets the list of currently open editor tabs
      */
     private getOpenEditors(): EditorInfo[] {
-        const openEditors: EditorInfo[] = [];
+        // Index the open documents once instead of scanning them per tab
+        const documentsByUri = new Map<string, vscode.TextDocument>();
+        for (const document of vscode.workspace.textDocuments) {
+            documentsByUri.set(document.uri.toString(), document);
+        }
 
-        // Get all tab groups and their tabs
-        const tabGroups = vscode.window.tabGroups.all;
+        // Keyed by URI so a file open in several tab groups is listed once
+        const openEditors = new Map<string, EditorInfo>();
 
-        tabGroups.forEach(tabGroup => {
-            tabGroup.tabs.forEach(tab => {
+        for (const tabGroup of vscode.window.tabGroups.all) {
+            for (const tab of tabGroup.tabs) {
                 // Only include text document tabs
-                if (tab.input instanceof vscode.TabInputText) {
-                    const document = tab.input.uri;
-
-                    // Try to find the corresponding text document
-                    const textDoc = vscode.workspace.textDocuments.find(doc =>
-                        doc.uri.toString() === document.toString()
-                    );
-
-                    if (textDoc) {
-                        let fileName: string;
-                        if (textDoc.isUntitled) {
-                            // For untitled documents, create a more descriptive name
-                            const tabLabel = tab.label || `Untitled-${textDoc.languageId}`;
-                            fileName = tabLabel;
-                        } else {
-                            fileName = vscode.workspace.asRelativePath(textDoc.fileName);
-                            // If the relative path is the same as the full path, show just the filename
-                            if (fileName === textDoc.fileName) {
-                                fileName = textDoc.fileName.split(/[/\\]/).pop() || fileName;
-                            }
-                        }
-
-                        // Avoid duplicates (same file can be open in multiple tab groups)
-                        const existingEditor = openEditors.find(e => e.id === textDoc.uri.toString());
-                        if (!existingEditor) {
-                            openEditors.push({
-                                id: textDoc.uri.toString(),
-                                fileName: fileName,
-                                language: textDoc.languageId,
-                                isDirty: textDoc.isDirty
-                            });
-                        }
-                    }
+                if (!(tab.input instanceof vscode.TabInputText)) {
+                    continue;
                 }
-            });
-        });
+
+                const uri = tab.input.uri.toString();
+                if (openEditors.has(uri)) {
+                    continue;
+                }
+
+                const textDoc = documentsByUri.get(uri);
+                if (!textDoc) {
+                    continue;
+                }
+
+                // For untitled documents, prefer the tab's own label
+                const fileName = textDoc.isUntitled
+                    ? (tab.label || `Untitled-${textDoc.languageId}`)
+                    : this.getDisplayName(textDoc);
+
+                openEditors.set(uri, {
+                    id: uri,
+                    fileName: fileName,
+                    language: textDoc.languageId,
+                    isDirty: textDoc.isDirty
+                });
+            }
+        }
 
         // Fallback: If tabGroups API doesn't return expected results, use visible editors
-        if (openEditors.length === 0) {
-            vscode.window.visibleTextEditors.forEach(editor => {
-                let fileName: string;
-                if (editor.document.isUntitled) {
-                    fileName = `Untitled-${editor.document.languageId}`;
-                } else {
-                    fileName = vscode.workspace.asRelativePath(editor.document.fileName);
-                    if (fileName === editor.document.fileName) {
-                        fileName = editor.document.fileName.split(/[/\\]/).pop() || fileName;
-                    }
-                }
+        if (openEditors.size === 0) {
+            for (const editor of vscode.window.visibleTextEditors) {
+                const document = editor.document;
+                const uri = document.uri.toString();
 
-                openEditors.push({
-                    id: editor.document.uri.toString(),
-                    fileName: fileName,
-                    language: editor.document.languageId,
-                    isDirty: editor.document.isDirty
+                openEditors.set(uri, {
+                    id: uri,
+                    fileName: document.isUntitled
+                        ? `Untitled-${document.languageId}`
+                        : this.getDisplayName(document),
+                    language: document.languageId,
+                    isDirty: document.isDirty
                 });
-            });
+            }
         }
 
         // Sort by filename for better organization
-        return openEditors.sort((a, b) => a.fileName.localeCompare(b.fileName));
+        return [...openEditors.values()].sort((a, b) => a.fileName.localeCompare(b.fileName));
+    }
+
+    /**
+     * Workspace-relative path for a saved document, or its bare file name when
+     * it lives outside the workspace
+     */
+    private getDisplayName(document: vscode.TextDocument): string {
+        const relativePath = vscode.workspace.asRelativePath(document.fileName);
+        if (relativePath !== document.fileName) {
+            return relativePath;
+        }
+        return document.fileName.split(/[/\\]/).pop() || relativePath;
     }
 
     /**
@@ -1817,28 +1871,16 @@ export class PlaygroundWebviewManager {
      * Sets up listeners for document changes to update live evaluation
      */
     private setupDocumentChangeListeners(): void {
-        let evaluationTimeout: NodeJS.Timeout | undefined;
-
-        // Debounced evaluation function to prevent excessive calls
-        const debouncedEvaluate = () => {
-            if (evaluationTimeout) {
-                clearTimeout(evaluationTimeout);
-            }
-            evaluationTimeout = setTimeout(() => {
-                this.evaluateExpression();
-            }, 300); // 300ms debounce
-        };
-
         const changeDisposable = vscode.workspace.onDidChangeTextDocument((event) => {
             // Check if the changed document is one of our selected editors
             const documentUri = event.document.uri.toString();
 
             if (this.state.selectedJsonInputEditor === documentUri) {
                 this.state.jsonInput = event.document.getText();
-                debouncedEvaluate();
+                this.scheduleEvaluation();
             } else if (this.state.selectedTemplateEditor === documentUri) {
                 this.state.jsonataExpression = event.document.getText();
-                debouncedEvaluate();
+                this.scheduleEvaluation();
             }
         });
         this.disposables.push(changeDisposable);
@@ -1849,74 +1891,85 @@ export class PlaygroundWebviewManager {
 
             if (this.state.selectedJsonInputEditor === documentUri) {
                 this.state.jsonInput = document.getText();
-                this.evaluateExpression();
             } else if (this.state.selectedTemplateEditor === documentUri) {
                 this.state.jsonataExpression = document.getText();
-                this.evaluateExpression();
+            } else {
+                return;
             }
+
+            // Saving supersedes anything the debouncer is still holding
+            this.evaluationDebouncer.cancel();
+            this.evaluateExpression();
         });
         this.disposables.push(saveDisposable);
 
         // Listen for tab changes to update available editors
         const tabChangeDisposable = vscode.window.tabGroups.onDidChangeTabs(() => {
-            // Update available editors when tabs change
-            this.updateAvailableEditors();
-
-            // Check if selected editors are still available
-            this.validateSelectedEditors();
+            this.scheduleEditorListRefresh();
         });
         this.disposables.push(tabChangeDisposable);
 
         // Listen for when documents are closed
         const closeDisposable = vscode.workspace.onDidCloseTextDocument((document) => {
             const documentUri = document.uri.toString();
+            let selectionCleared = false;
 
             // If a selected editor was closed, reset the selection
             if (this.state.selectedJsonInputEditor === documentUri) {
                 this.state.selectedJsonInputEditor = null;
-                // Reset to default content if needed
-                this.state.jsonInput = '{\n  "example": [\n    {"value": 4},\n    {"value": 7},\n    {"value": 13}\n  ]\n}';
-                this.evaluateExpression();
+                this.state.jsonInput = DEFAULT_JSON_INPUT;
+                selectionCleared = true;
             }
 
             if (this.state.selectedTemplateEditor === documentUri) {
                 this.state.selectedTemplateEditor = null;
-                // Reset to default content if needed
-                this.state.jsonataExpression = 'example[value > 5].value';
-                this.evaluateExpression();
+                this.state.jsonataExpression = DEFAULT_JSONATA_EXPRESSION;
+                selectionCleared = true;
+            }
+
+            if (selectionCleared) {
+                this.scheduleEvaluation();
             }
 
             // Update available editors list
-            this.updateAvailableEditors();
+            this.scheduleEditorListRefresh();
         });
         this.disposables.push(closeDisposable);
 
         // Listen for when text documents are opened (to catch new editors)
         const openDisposable = vscode.workspace.onDidOpenTextDocument(() => {
-            // Small delay to allow the tab to be fully registered
-            setTimeout(() => {
-                this.updateAvailableEditors();
-            }, 100);
+            this.scheduleEditorListRefresh();
         });
         this.disposables.push(openDisposable);
+    }
+
+    /**
+     * Rebuilds the editor list once the current burst of tab activity settles.
+     * Opening a folder or restoring a session fires one event per file.
+     */
+    private scheduleEditorListRefresh(): void {
+        this.editorListDebouncer.schedule(() => {
+            this.updateAvailableEditors();
+            this.validateSelectedEditors();
+        });
     }
 
     /**
      * Validates that selected editors are still available and resets if not
      */
     private validateSelectedEditors(): void {
-        const availableEditorIds = this.state.availableEditors.map(e => e.id);
+        const availableEditorIds = new Set(this.state.availableEditors.map(e => e.id));
         let stateChanged = false;
 
-        if (this.state.selectedJsonInputEditor && !availableEditorIds.includes(this.state.selectedJsonInputEditor)) {
+        if (this.state.selectedJsonInputEditor && !availableEditorIds.has(this.state.selectedJsonInputEditor)) {
             this.state.selectedJsonInputEditor = null;
-            this.state.jsonInput = '{\n  "example": [\n    {"value": 4},\n    {"value": 7},\n    {"value": 13}\n  ]\n}';
+            this.state.jsonInput = DEFAULT_JSON_INPUT;
             stateChanged = true;
         }
 
-        if (this.state.selectedTemplateEditor && !availableEditorIds.includes(this.state.selectedTemplateEditor)) {
+        if (this.state.selectedTemplateEditor && !availableEditorIds.has(this.state.selectedTemplateEditor)) {
             this.state.selectedTemplateEditor = null;
-            this.state.jsonataExpression = 'example[value > 5].value';
+            this.state.jsonataExpression = DEFAULT_JSONATA_EXPRESSION;
             stateChanged = true;
         }
 

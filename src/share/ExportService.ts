@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
-import { PlaygroundSession, ShareService } from './ShareService';
+import { ShareService } from './ShareService';
 import { PlaygroundProvider } from '../playground/PlaygroundProvider';
+import { PlaygroundPanel } from '../playground/PlaygroundPanel';
 
 /**
  * Service for exporting JSONata playground sessions
@@ -22,7 +23,7 @@ export class ExportService {
         }
 
         // Extract current session data
-        const sessionData = await this.extractSessionData(playground);
+        const sessionData = this.extractSessionData(playground);
         if (!sessionData) {
             vscode.window.showErrorMessage('Failed to extract playground data.');
             return false;
@@ -72,22 +73,19 @@ export class ExportService {
     /**
      * Extracts session data from the current playground
      */
-    private static async extractSessionData(playground: any): Promise<{
+    private static extractSessionData(playground: PlaygroundPanel): {
         jsonInput: string;
         jsonataExpression: string;
         result: string;
         hasError: boolean;
         errorMessage?: string;
-    } | null> {
+    } | null {
         try {
-            // Get the webview manager to access current state
-            const webviewManager = playground.webviewManager;
-            if (!webviewManager || !webviewManager.currentState) {
-                console.error('Webview manager or state not available');
+            const state = playground.currentState;
+            if (!state) {
+                console.error('Playground state not available');
                 return null;
             }
-
-            const state = webviewManager.currentState;
 
             return {
                 jsonInput: state.jsonInput || '',
@@ -181,7 +179,7 @@ export class ExportService {
             return;
         }
 
-        const sessionData = await this.extractSessionData(playground);
+        const sessionData = this.extractSessionData(playground);
         if (!sessionData) {
             vscode.window.showErrorMessage('Failed to extract playground data.');
             return;

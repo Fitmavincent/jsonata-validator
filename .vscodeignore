@@ -12,3 +12,23 @@ vsc-extension-quickstart.md
 **/*.map
 **/*.ts
 **/.vscode-test.*
+package-lock.json
+
+# Development scratch scripts and fixtures (not used at runtime)
+debug-*.js
+demo-*.js
+test-*.js
+demo-*.jsonata
+test-*.jsonata
+test-data.json
+json-highlight-test.html
+
+# Internal development notes; README, CHANGELOG and the docs README links to
+# (PLAYGROUND, EDITOR-TAB-SELECTION, SHARE-IMPORT-FEATURE) are still shipped
+AI-INTEGRATION-TEST.md
+CURSOR-JUMPING-FIX.md
+ERROR-HANDLING-TEST.md
+FIXED-ERROR-REFLECTION.md
+POSITIONING-IMPROVEMENTS.md
+RESULT-PANEL-IMPROVEMENTS.md
+SHARE-IMPORT-EXAMPLES.md
