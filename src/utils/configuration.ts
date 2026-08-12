@@ -6,6 +6,7 @@ export interface ValidatorConfiguration {
 	validateOnType: boolean;
 	validateOnSave: boolean;
 	maxNumberOfProblems: number;
+	warnOnUnsupportedLineComments: boolean;
 }
 
 let cached: ValidatorConfiguration | undefined;
@@ -15,7 +16,8 @@ function read(): ValidatorConfiguration {
 	return {
 		validateOnType: config.get<boolean>('validateOnType', true),
 		validateOnSave: config.get<boolean>('validateOnSave', true),
-		maxNumberOfProblems: config.get<number>('maxNumberOfProblems', 100)
+		maxNumberOfProblems: config.get<number>('maxNumberOfProblems', 100),
+		warnOnUnsupportedLineComments: config.get<boolean>('warnOnUnsupportedLineComments', true)
 	};
 }
 
@@ -32,12 +34,16 @@ export function getValidatorConfiguration(): ValidatorConfiguration {
 }
 
 /**
- * Keeps the cached settings in sync with the user's configuration
+ * Keeps the cached settings in sync with the user's configuration.
+ *
+ * `onChange` runs after the cache is dropped, so anything it triggers already
+ * sees the new settings.
  */
-export function registerConfigurationWatcher(): vscode.Disposable {
+export function registerConfigurationWatcher(onChange?: () => void): vscode.Disposable {
 	return vscode.workspace.onDidChangeConfiguration(event => {
 		if (event.affectsConfiguration(SECTION)) {
 			cached = undefined;
+			onChange?.();
 		}
 	});
 }

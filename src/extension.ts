@@ -104,7 +104,15 @@ export function activate(context: vscode.ExtensionContext) {
 	// Register event listeners
 	const validationDebouncer = new Debouncer(VALIDATION_DEBOUNCE_MS);
 
-	const configurationWatcher = registerConfigurationWatcher();
+	// Settings such as the line comment warning change what gets reported, so
+	// refresh what is already on screen rather than waiting for the next edit
+	const configurationWatcher = registerConfigurationWatcher(() => {
+		vscode.workspace.textDocuments.forEach(document => {
+			if (isJsonataFile(document)) {
+				validationService.validateDocument(document);
+			}
+		});
+	});
 
 	const onDidChangeTextDocument = vscode.workspace.onDidChangeTextDocument(event => {
 		if (!isJsonataFile(event.document) || !getValidatorConfiguration().validateOnType) {

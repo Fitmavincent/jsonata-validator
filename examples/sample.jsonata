@@ -1,10 +1,10 @@
-// Valid JSONata expressions
+/* Valid JSONata expressions */
 $.firstName
 $.address.city
 $.products[price > 100]
 $.orders[status = "shipped"].total ~> $sum()
 
-// Invalid JSONata expressions (for testing validation)
+/* Invalid JSONata expressions (for testing validation) */
 $.firstName..invalid
 $.products[price > 100
 $$invalid.syntax

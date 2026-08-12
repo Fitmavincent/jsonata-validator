@@ -79,6 +79,28 @@ The extension provides comprehensive JSONata validation by leveraging the offici
 - Function calls: `$sum($.items.price)`
 - Multi-line expressions with proper bracket matching
 
+### Comments
+
+JSONata supports block comments, and the validator understands them wherever
+they appear — above an expression, inline, or spanning several lines:
+
+```jsonata
+/*
+ * Everyone still on the books
+ */
+$.users[active = true].name /* one per user */
+```
+
+JSONata has **no line comments**. A `//` comment is reported as a warning
+rather than an error, so the rest of the file still validates normally, but it
+will fail when the expression is actually evaluated:
+
+```jsonata
+// This is not valid JSONata - use /* ... */ instead
+```
+
+Turn the warning off with `jsonataValidator.warnOnUnsupportedLineComments`.
+
 ## Usage
 
 ### File Types Supported
@@ -111,7 +133,8 @@ Configure the extension through VS Code settings:
 {
   "jsonataValidator.validateOnType": true,        // Validate as you type
   "jsonataValidator.validateOnSave": true,        // Validate when saving
-  "jsonataValidator.maxNumberOfProblems": 100     // Maximum errors to show
+  "jsonataValidator.maxNumberOfProblems": 100,    // Maximum errors to show
+  "jsonataValidator.warnOnUnsupportedLineComments": true  // Warn about // comments
 }
 ```
 

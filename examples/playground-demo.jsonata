@@ -9,8 +9,8 @@ products[price > 100]{
   savings: price - (price * 0.8)
 }
 
-// Array manipulation
+/* Array manipulation */
 products.price ~> $sort() ~> $reverse()
 
-// String operations
+/* String operations */
 $uppercase($substring(name, 0, 3)) & " - " & $string(price)
