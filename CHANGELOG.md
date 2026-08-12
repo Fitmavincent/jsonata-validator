@@ -16,32 +16,69 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 - **Expressions spread over several lines without brackets** (`~>`, `&`, `+`
   and friends at a line boundary) are no longer split apart and reported as
   errors
-- **Brackets inside string literals** no longer confuse expression boundaries;
-  the scanner now tracks which quote character opened a string, so
-  `$foo["a]b"]` is read correctly
-- **Validation on type is now actually debounced.** Every keystroke used to
-  schedule its own full re-validation 500ms later; a burst of typing now
-  results in a single pass
 
 ### Added
 - `jsonataValidator.warnOnUnsupportedLineComments` (default `true`): JSONata
   has no `//` line comments, and a stray one used to surface as a confusing
   `S0301 Empty regular expressions are not allowed` or `S0302 No terminating /
-  in regular expression`. These are now reported as a plain warning that names
-  the real problem, and the rest of the file still validates
-- Diagnostics refresh when JSONata Validator settings change
+  in regular expression`, because the parser reads the `/` as a regex. These are
+  now reported as a plain warning that names the real problem, and the rest of
+  the file still validates
+- Diagnostics refresh when JSONata Validator settings change, so toggling a
+  setting updates what is already on screen
+
+### Changed
+- The `examples/` templates use block comments, since `//` is not valid JSONata
 
 ### Technical
-- New `jsonataScanner` module: a small comment/string-aware scanner, kept free
-  of any `vscode` import so it can be tested on its own
-- `ValidationService` now compiles the whole document first and only falls back
-  to splitting it into separate expressions when that fails, which lets JSONata
+- `BracketScanner` becomes `JsonataScanner`: it now tracks comments as well as
+  brackets and strings, and returns each line with its comments blanked out so
+  columns still line up with the document. Block comment state carries across
+  lines; quote state still deliberately does not
+- `ValidationService` compiles the whole document first and only falls back to
+  splitting it into separate expressions when that fails, which lets JSONata
   itself deal with comments and line breaks instead of a line-based heuristic
-- Unit test suites for the scanner and the expression extractor
-- Fixed the extension ID used by the test suite, which silently skipped
-  activation and left three tests failing
+- Unit suites for the scanner and the expression extractor, plus integration
+  coverage for the issue above and for the new setting
 
 ## [Unreleased]
+
+### Performance
+- **Real debouncing for validate-on-type**: every keystroke previously queued its own
+  validation pass 500ms later with no cancellation, so a burst of typing ran one full
+  pass per character. Passes are now collapsed per document.
+- **Linear expression extraction**: multi-line expressions were re-scanned from the top
+  after every line, making extraction quadratic in file size (a 1000-line template cost
+  ~775ms per pass, ~12.7s at 4000 lines). Bracket state is now carried across lines,
+  bringing the same files to ~0.5ms and ~2.3ms.
+- **Compiled expressions are cached** by source text and reused across validation and
+  playground evaluation.
+- **Playground evaluation is debounced** and guarded against stale results, so a slow
+  expression can no longer overwrite the output of a newer edit.
+- Editor settings are read once and refreshed on change instead of per keystroke; the
+  editor list and persisted playground selection are only rewritten when they change;
+  the open-editor lookup no longer rescans every open document per tab.
+- JSON documents no longer trigger a validation pass that immediately discards its work.
+
+### Fixed
+- **Result syntax highlighting**: escape sequences in the webview script were consumed by
+  the surrounding template literal (`\s` → `s`, `\d` → `d`), so string, number, boolean
+  and null values were never highlighted.
+- **Copy button in the error panel** used an inline `onclick` handler, which the panel's
+  Content-Security-Policy blocks; it now uses a delegated listener and works.
+- Playground results are HTML-escaped before display, so a result containing markup is
+  rendered as text instead of being injected into the panel.
+- An apostrophe inside a double-quoted string no longer causes following lines to be
+  swallowed into one expression during extraction.
+- Test suite: corrected the extension identifier (the manifest declares a publisher) and
+  upgraded `@vscode/test-electron`, which could not launch VS Code 1.110+ on macOS.
+
+### Changed
+- Development scratch scripts, fixtures and internal notes are excluded from the packaged
+  extension.
+- Removed the unused `ValidationService` plumbing through the playground classes, the
+  dead `containsJsonataExpression`/`extractJsonataExpressionsFromLine` helpers, and the
+  `vscode:uninstall` script pointing at a file that does not exist.
 
 ### Added
 - **Session Share/Import Feature**: Major new feature for sharing and importing JSONata playground sessions

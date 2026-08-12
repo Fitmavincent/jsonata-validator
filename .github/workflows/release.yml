@@ -1,0 +1,101 @@
+name: Release – build & publish to Marketplace
+
+on:
+  push:
+    branches: [master]
+  # Lets you re-run a release by hand if a publish step failed.
+  workflow_dispatch:
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: write # needed to push the version tag and create the GitHub Release
+
+jobs:
+  release:
+    name: Build, test & publish release
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # full history so --generate-notes has something to diff
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Type check
+        run: npm run check-types
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Cache VS Code test binaries
+        uses: actions/cache@v6
+        with:
+          path: .vscode-test
+          key: vscode-test-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: vscode-test-${{ runner.os }}-
+
+      # vscode-test launches a real VS Code instance, which needs a display.
+      - name: Test
+        run: xvfb-run -a npm test
+
+      # The release version is whatever is in package.json — bump it in the PR,
+      # the same way you do today. Re-running on an already-published version is
+      # a no-op rather than a failure (see --skip-duplicate below).
+      - name: Read version
+        id: version
+        run: |
+          node -e '
+            const fs = require("fs");
+            const version = require("./package.json").version;
+            const minor = Number(version.split(".")[1]);
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, "version=" + version + "\n");
+            if (minor % 2 !== 0) {
+              console.log("::warning::Release version " + version + " has an odd minor, which is reserved for pre-releases. Bump to an even minor to keep the two channels apart.");
+            }
+            console.log("release version:", version);
+          '
+
+      - name: Package
+        run: npx --yes @vscode/vsce@3 package --out "jsonata-validator-${{ steps.version.outputs.version }}.vsix"
+
+      - name: Upload VSIX artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: jsonata-validator-${{ steps.version.outputs.version }}
+          path: "*.vsix"
+          if-no-files-found: error
+
+      - name: Publish release to Marketplace
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: npx --yes @vscode/vsce@3 publish --packagePath "jsonata-validator-${{ steps.version.outputs.version }}.vsix" --skip-duplicate
+
+      - name: Tag and create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="v${{ steps.version.outputs.version }}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists — nothing to tag."
+            exit 0
+          fi
+          gh release create "$TAG" \
+            "jsonata-validator-${{ steps.version.outputs.version }}.vsix" \
+            --title "$TAG" \
+            --generate-notes \
+            --target "$GITHUB_SHA"
+
+      - name: Summary
+        run: |
+          echo "### Release \`${{ steps.version.outputs.version }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Published to the Marketplace and tagged \`v${{ steps.version.outputs.version }}\`." >> "$GITHUB_STEP_SUMMARY"

@@ -1,7 +1,9 @@
 import * as vscode from 'vscode';
-import jsonata from 'jsonata';
 import { extractJsonataExpressionsFromPureJsonata } from './expressionExtractor';
-import { LineCommentLocation, stripComments } from '../utils/jsonataUtils';
+import { getValidatorConfiguration } from '../utils/configuration';
+import { isJsonataFile } from '../utils/jsonataUtils';
+import { compileExpression } from '../utils/expressionCache';
+import { LineCommentLocation, stripComments } from '../utils/jsonataScanner';
 
 /**
  * Validation service for JSONata expressions
@@ -10,18 +12,11 @@ export class ValidationService {
     constructor(private diagnosticCollection: vscode.DiagnosticCollection) {}
 
     /**
-     * Check if a document is a JSONata file
-     */
-    private isJsonataFile(document: vscode.TextDocument): boolean {
-        return document.languageId === 'jsonata' || document.fileName.endsWith('.jsonata');
-    }
-
-    /**
      * Validate an entire document
      */
     public validateDocument(document: vscode.TextDocument): void {
         // Only validate .jsonata files
-        if (!this.isJsonataFile(document)) {
+        if (!isJsonataFile(document)) {
             // Clear any existing diagnostics for non-jsonata files
             this.diagnosticCollection.set(document.uri, []);
             return;
@@ -37,7 +32,7 @@ export class ValidationService {
      */
     public validateSelection(document: vscode.TextDocument, selectedText: string, selection: vscode.Selection): void {
         // Only validate selections in JSONata files
-        if (!this.isJsonataFile(document)) {
+        if (!isJsonataFile(document)) {
             vscode.window.showWarningMessage('Selection validation is only available for .jsonata files');
             return;
         }
@@ -60,11 +55,11 @@ export class ValidationService {
      */
     private validateJsonataText(text: string, document: vscode.TextDocument, offset?: vscode.Position): vscode.Diagnostic[] {
         const diagnostics: vscode.Diagnostic[] = [];
-        const config = vscode.workspace.getConfiguration('jsonataValidator');
-        const maxProblems = config.get<number>('maxNumberOfProblems', 100);
+        const configuration = getValidatorConfiguration();
+        const maxProblems = configuration.maxNumberOfProblems;
 
         // Only validate JSONata files
-        if (!this.isJsonataFile(document)) {
+        if (!isJsonataFile(document)) {
             return diagnostics;
         }
 
@@ -77,7 +72,7 @@ export class ValidationService {
         // lines far better than any line-based heuristic can. Only when the
         // whole document fails to compile is it worth splitting the text up to
         // work out which part is at fault.
-        if (code.trim() && !this.compiles(code)) {
+        if (code.trim() && !compileExpression(code).ok) {
             const expressions = extractJsonataExpressionsFromPureJsonata(code);
 
             for (const expression of expressions) {
@@ -97,7 +92,7 @@ export class ValidationService {
             }
         }
 
-        if (config.get<boolean>('warnOnUnsupportedLineComments', true)) {
+        if (configuration.warnOnUnsupportedLineComments) {
             for (const lineComment of lineComments) {
                 if (diagnostics.length >= maxProblems) {
                     break;
@@ -108,18 +103,6 @@ export class ValidationService {
         }
 
         return diagnostics;
-    }
-
-    /**
-     * Check whether a JSONata expression compiles
-     */
-    private compiles(expression: string): boolean {
-        try {
-            jsonata(expression);
-            return true;
-        } catch {
-            return false;
-        }
     }
 
     /**
@@ -167,13 +150,12 @@ export class ValidationService {
             return diagnostics;
         }
 
-        try {
-            // Attempt to compile the JSONata expression
-            jsonata(expression);
-        } catch (error: any) {
+        // Attempt to compile the JSONata expression
+        const compiled = compileExpression(expression);
+        if (!compiled.ok) {
             // JSONata provides detailed error information
             const diagnostic = this.createDiagnosticFromJsonataError(
-                error,
+                compiled.error,
                 expression,
                 document,
                 lineIndex,

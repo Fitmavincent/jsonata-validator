@@ -1,27 +1,5 @@
-/**
- * A small hand-rolled scanner for JSONata source.
- *
- * Deliberately free of any `vscode` import so it can be reasoned about - and
- * tested - on its own.
- */
-
 const BRACKET_PAIRS: Record<string, string> = { '(': ')', '[': ']', '{': '}' };
-const CLOSING_BRACKETS = Object.values(BRACKET_PAIRS);
-
-/**
- * Lexer state carried from one line of JSONata source to the next, so that
- * strings and block comments spanning several lines stay understood as such.
- */
-export interface ScanState {
-	/** Closing brackets still expected, innermost last */
-	stack: string[];
-	/** Quote character of the string literal left open, or null */
-	stringDelimiter: string | null;
-	/** True while a block comment opened earlier is still unterminated */
-	inBlockComment: boolean;
-	/** True once a closing bracket turned up without a matching opener */
-	mismatched: boolean;
-}
+const CLOSING_BRACKETS = new Set(Object.values(BRACKET_PAIRS));
 
 /**
  * Where an unsupported `//` comment was found
@@ -33,7 +11,7 @@ export interface LineCommentLocation {
 }
 
 /**
- * Result of scanning a single line
+ * What a single line contributed, once its comments have been discounted
  */
 export interface LineScan {
 	/** Column of the first code character, or -1 when the line holds no code */
@@ -44,101 +22,135 @@ export interface LineScan {
 	lineCommentColumns: number[];
 }
 
-export function createScanState(): ScanState {
-	return { stack: [], stringDelimiter: null, inBlockComment: false, mismatched: false };
-}
-
 /**
- * True when the scanner sits at a point where an expression could legally end
- */
-export function isBalanced(state: ScanState): boolean {
-	return state.stack.length === 0 && state.stringDelimiter === null && !state.inBlockComment;
-}
-
-/**
- * Advance `state` across one line of JSONata source.
+ * Tracks bracket nesting and comments across the lines of a single expression.
  *
- * Comments are replaced by spaces rather than removed so that every remaining
- * character keeps its original column, which is what the diagnostics rely on to
- * point at the right place in the document.
+ * Feeding lines in one at a time keeps extraction linear in the size of the
+ * document; re-checking the whole accumulated expression after every line makes
+ * it quadratic, which is what a large .jsonata file used to pay on each
+ * keystroke.
  */
-export function scanLine(line: string, state: ScanState): LineScan {
-	const code = line.split('');
-	const lineCommentColumns: number[] = [];
-	let firstCodeColumn = -1;
+export class JsonataScanner {
+	private readonly expectedClosers: string[] = [];
+	private mismatched = false;
+	private inBlockComment = false;
 
-	for (let i = 0; i < line.length; i++) {
-		const char = line[i];
+	/**
+	 * Consumes one line of an expression, returning it with comments blanked
+	 * out. Comments become spaces rather than disappearing, so every remaining
+	 * character keeps the column the diagnostics will point at.
+	 *
+	 * String literals cannot span lines in JSONata, so quote state deliberately
+	 * does not carry over to the next call — an unterminated quote can no longer
+	 * swallow the rest of the file. Block comments are the opposite: they are
+	 * written across several lines all the time, so that state does carry.
+	 */
+	public scanLine(line: string): LineScan {
+		const code = line.split('');
+		const lineCommentColumns: number[] = [];
+		let firstCodeColumn = -1;
+		let quote: string | null = null;
 
-		if (state.inBlockComment) {
-			code[i] = ' ';
-			if (char === '*' && line[i + 1] === '/') {
+		for (let i = 0; i < line.length; i++) {
+			const char = line[i];
+
+			if (this.inBlockComment) {
+				code[i] = ' ';
+				if (char === '*' && line[i + 1] === '/') {
+					code[i + 1] = ' ';
+					this.inBlockComment = false;
+					i++;
+				}
+				continue;
+			}
+
+			if (quote) {
+				if (char === '\\') {
+					i++; // Skip the escaped character
+				} else if (char === quote) {
+					quote = null;
+				}
+				continue;
+			}
+
+			if (char === '/' && line[i + 1] === '*') {
+				code[i] = ' ';
 				code[i + 1] = ' ';
-				state.inBlockComment = false;
+				this.inBlockComment = true;
 				i++;
+				continue;
 			}
-			continue;
-		}
 
-		if (state.stringDelimiter !== null) {
-			if (char === '\\') {
-				i++; // the escaped character is part of the string, whatever it is
-			} else if (char === state.stringDelimiter) {
-				state.stringDelimiter = null;
+			// JSONata has no line comments, but `//` is a habit people bring
+			// from other languages. Treat the rest of the line as a comment so a
+			// single slip doesn't cascade into bogus syntax errors on the lines
+			// below; the caller reports it separately.
+			if (char === '/' && line[i + 1] === '/') {
+				lineCommentColumns.push(i);
+				for (let j = i; j < line.length; j++) {
+					code[j] = ' ';
+				}
+				break;
 			}
-			continue;
-		}
 
-		if (char === '/' && line[i + 1] === '*') {
-			code[i] = ' ';
-			code[i + 1] = ' ';
-			state.inBlockComment = true;
-			i++;
-			continue;
-		}
-
-		// JSONata has no line comments, but `//` is a habit people bring from
-		// other languages. Treat the rest of the line as a comment so a single
-		// slip doesn't cascade into bogus syntax errors; the caller reports it.
-		if (char === '/' && line[i + 1] === '/') {
-			lineCommentColumns.push(i);
-			for (let j = i; j < line.length; j++) {
-				code[j] = ' ';
+			if (firstCodeColumn === -1 && char.trim()) {
+				firstCodeColumn = i;
 			}
-			break;
-		}
 
-		if (firstCodeColumn === -1 && char.trim()) {
-			firstCodeColumn = i;
-		}
-
-		if (char === '"' || char === "'") {
-			state.stringDelimiter = char;
-		} else if (char in BRACKET_PAIRS) {
-			state.stack.push(BRACKET_PAIRS[char]);
-		} else if (CLOSING_BRACKETS.includes(char)) {
-			if (state.stack.pop() !== char) {
-				state.mismatched = true;
+			if (char === '"' || char === "'") {
+				quote = char;
+			} else if (char in BRACKET_PAIRS) {
+				this.expectedClosers.push(BRACKET_PAIRS[char]);
+			} else if (CLOSING_BRACKETS.has(char)) {
+				if (this.expectedClosers.pop() !== char) {
+					this.mismatched = true;
+				}
 			}
 		}
+
+		return { firstCodeColumn, code: code.join(''), lineCommentColumns };
 	}
 
-	return { firstCodeColumn, code: code.join(''), lineCommentColumns };
+	/**
+	 * True when every bracket opened so far has been closed by a matching one
+	 * and no block comment is still hanging open
+	 */
+	public get isBalanced(): boolean {
+		return !this.mismatched && this.expectedClosers.length === 0 && !this.inBlockComment;
+	}
+
+	/**
+	 * True once a closing bracket turned up without a matching opener. Reading
+	 * further lines can never repair this, so callers stop accumulating.
+	 */
+	public get isMismatched(): boolean {
+		return this.mismatched;
+	}
+
+	/**
+	 * Clears the bracket bookkeeping for the next expression. An unterminated
+	 * block comment is deliberately kept: it belongs to whatever follows, not to
+	 * the expression that just ended.
+	 */
+	public reset(): void {
+		this.expectedClosers.length = 0;
+		this.mismatched = false;
+	}
 }
 
 /**
- * Blank out every comment in `text`, keeping the character count intact.
+ * Blanks out every comment in `text`, keeping the character count intact.
  *
  * Block comments are valid JSONata and could be left alone, but removing them
  * here means a file made up of nothing but comments reduces to whitespace and
  * is correctly treated as having nothing to validate.
  */
 export function stripComments(text: string): { text: string; lineComments: LineCommentLocation[] } {
-	const state = createScanState();
+	const scanner = new JsonataScanner();
 	const lineComments: LineCommentLocation[] = [];
 
 	const strippedLines = text.split('\n').map((line, lineIndex) => {
-		const scan = scanLine(line, state);
+		const scan = scanner.scanLine(line);
 		for (const character of scan.lineCommentColumns) {
 			lineComments.push({ line: lineIndex, character, length: line.length - character });
 		}
@@ -146,20 +158,4 @@ export function stripComments(text: string): { text: string; lineComments: LineC
 	});
 
 	return { text: strippedLines.join('\n'), lineComments };
-}
-
-/**
- * Check if a JSONata expression appears to be complete
- *
- * Heuristic: every bracket is matched and no string or block comment is left
- * hanging. Brackets and quotes inside comments and string literals don't count.
- */
-export function isCompleteExpression(expression: string): boolean {
-	const state = createScanState();
-
-	for (const line of expression.split('\n')) {
-		scanLine(line, state);
-	}
-
-	return !state.mismatched && isBalanced(state);
 }

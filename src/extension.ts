@@ -4,41 +4,17 @@ import * as vscode from 'vscode';
 import { PlaygroundProvider } from './playground/PlaygroundProvider';
 import { ValidationService } from './validation/ValidationService';
 import { isJsonataFile } from './utils/jsonataUtils';
+import { getValidatorConfiguration, registerConfigurationWatcher } from './utils/configuration';
+import { Debouncer } from './utils/debounce';
 import { ExportService } from './share/ExportService';
 import { ImportService } from './share/ImportService';
+
+// How long typing has to pause before a document is re-validated
+const VALIDATION_DEBOUNCE_MS = 500;
 
 // Diagnostic collection for JSONata validation errors
 let diagnosticCollection: vscode.DiagnosticCollection;
 let validationService: ValidationService;
-
-// Pending validations keyed by document URI, so a burst of keystrokes results
-// in a single validation instead of one per character
-const pendingValidations = new Map<string, NodeJS.Timeout>();
-const VALIDATION_DEBOUNCE_MS = 500;
-
-function scheduleValidation(document: vscode.TextDocument): void {
-	const key = document.uri.toString();
-	const pending = pendingValidations.get(key);
-
-	if (pending) {
-		clearTimeout(pending);
-	}
-
-	pendingValidations.set(key, setTimeout(() => {
-		pendingValidations.delete(key);
-		validationService.validateDocument(document);
-	}, VALIDATION_DEBOUNCE_MS));
-}
-
-function cancelPendingValidation(document: vscode.TextDocument): void {
-	const key = document.uri.toString();
-	const pending = pendingValidations.get(key);
-
-	if (pending) {
-		clearTimeout(pending);
-		pendingValidations.delete(key);
-	}
-}
 
 // This method is called when your extension is activated
 // Your extension is activated the very first time the command is executed
@@ -55,8 +31,8 @@ export function activate(context: vscode.ExtensionContext) {
 	// Initialize validation service
 	validationService = new ValidationService(diagnosticCollection);
 
-	// Initialize playground provider with validation service
-	const playgroundProvider = PlaygroundProvider.getInstance(context, validationService);
+	// Initialize playground provider
+	const playgroundProvider = PlaygroundProvider.getInstance(context);
 
 	// Register commands
 	const validateDocumentCommand = vscode.commands.registerCommand('jsonata-validator.validateDocument', () => {
@@ -126,23 +102,36 @@ export function activate(context: vscode.ExtensionContext) {
 	});
 
 	// Register event listeners
-	const onDidChangeTextDocument = vscode.workspace.onDidChangeTextDocument(event => {
-		const config = vscode.workspace.getConfiguration('jsonataValidator');
-		if (config.get<boolean>('validateOnType', true)) {
-			if (isJsonataFile(event.document)) {
-				scheduleValidation(event.document);
+	const validationDebouncer = new Debouncer(VALIDATION_DEBOUNCE_MS);
+
+	// Settings such as the line comment warning change what gets reported, so
+	// refresh what is already on screen rather than waiting for the next edit
+	const configurationWatcher = registerConfigurationWatcher(() => {
+		vscode.workspace.textDocuments.forEach(document => {
+			if (isJsonataFile(document)) {
+				validationService.validateDocument(document);
 			}
+		});
+	});
+
+	const onDidChangeTextDocument = vscode.workspace.onDidChangeTextDocument(event => {
+		if (!isJsonataFile(event.document) || !getValidatorConfiguration().validateOnType) {
+			return;
 		}
+
+		// Collapse a burst of keystrokes into a single validation pass
+		const document = event.document;
+		validationDebouncer.schedule(() => validationService.validateDocument(document), document.uri.toString());
 	});
 
 	const onDidSaveTextDocument = vscode.workspace.onDidSaveTextDocument(document => {
-		const config = vscode.workspace.getConfiguration('jsonataValidator');
-		if (config.get<boolean>('validateOnSave', true)) {
-			if (isJsonataFile(document)) {
-				cancelPendingValidation(document);
-				validationService.validateDocument(document);
-			}
+		if (!isJsonataFile(document) || !getValidatorConfiguration().validateOnSave) {
+			return;
 		}
+
+		// Saving supersedes anything the debouncer is still holding
+		validationDebouncer.cancel(document.uri.toString());
+		validationService.validateDocument(document);
 	});
 
 	const onDidOpenTextDocument = vscode.workspace.onDidOpenTextDocument(document => {
@@ -152,22 +141,8 @@ export function activate(context: vscode.ExtensionContext) {
 	});
 
 	const onDidCloseTextDocument = vscode.workspace.onDidCloseTextDocument(document => {
-		cancelPendingValidation(document);
+		validationDebouncer.cancel(document.uri.toString());
 		diagnosticCollection.delete(document.uri);
-	});
-
-	// Settings such as the line comment warning change what is reported, so
-	// refresh the open documents rather than waiting for the next edit
-	const onDidChangeConfiguration = vscode.workspace.onDidChangeConfiguration(event => {
-		if (!event.affectsConfiguration('jsonataValidator')) {
-			return;
-		}
-
-		vscode.workspace.textDocuments.forEach(document => {
-			if (isJsonataFile(document)) {
-				validationService.validateDocument(document);
-			}
-		});
 	});
 
 	// Add all subscriptions
@@ -185,7 +160,8 @@ export function activate(context: vscode.ExtensionContext) {
 		onDidSaveTextDocument,
 		onDidOpenTextDocument,
 		onDidCloseTextDocument,
-		onDidChangeConfiguration
+		configurationWatcher,
+		validationDebouncer
 	);
 
 	// Validate already open documents
@@ -198,9 +174,6 @@ export function activate(context: vscode.ExtensionContext) {
 
 // This method is called when your extension is deactivated
 export function deactivate() {
-	pendingValidations.forEach(timeout => clearTimeout(timeout));
-	pendingValidations.clear();
-
 	if (diagnosticCollection) {
 		diagnosticCollection.dispose();
 	}

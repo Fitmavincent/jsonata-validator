@@ -1,5 +1,5 @@
 import * as assert from 'assert';
-import { createScanState, isCompleteExpression, scanLine, stripComments } from '../utils/jsonataScanner';
+import { JsonataScanner, stripComments } from '../utils/jsonataScanner';
 
 suite('JSONata Scanner Test Suite', () => {
 
@@ -42,60 +42,66 @@ suite('JSONata Scanner Test Suite', () => {
 		});
 	});
 
-	suite('scanLine', () => {
+	suite('JsonataScanner', () => {
 		test('reports the first code column, skipping a leading comment', () => {
-			assert.strictEqual(scanLine('  /* c */ $.foo', createScanState()).firstCodeColumn, 10);
+			assert.strictEqual(new JsonataScanner().scanLine('  /* c */ $.foo').firstCodeColumn, 10);
 		});
 
 		test('reports no code for a line that is only a comment', () => {
-			assert.strictEqual(scanLine('   /* c */   ', createScanState()).firstCodeColumn, -1);
+			assert.strictEqual(new JsonataScanner().scanLine('   /* c */   ').firstCodeColumn, -1);
 		});
 
 		test('carries an unterminated block comment to the next line', () => {
-			const state = createScanState();
+			const scanner = new JsonataScanner();
 
-			scanLine('$.foo /* opening', state);
-			assert.strictEqual(state.inBlockComment, true);
+			scanner.scanLine('$sum( /* opening');
+			assert.strictEqual(scanner.isBalanced, false, 'the open comment leaves the line unbalanced');
 
-			scanLine('still comment */ .bar', state);
-			assert.strictEqual(state.inBlockComment, false);
+			scanner.scanLine('still comment */ 1)');
+			assert.strictEqual(scanner.isBalanced, true);
+		});
+
+		test('keeps an open block comment across a reset', () => {
+			const scanner = new JsonataScanner();
+
+			scanner.scanLine('$.foo /* opening');
+			scanner.reset();
+
+			// The comment belongs to whatever follows, not to the expression
+			// that just ended, so this line is still comment text
+			assert.strictEqual(scanner.scanLine('$.notCode').firstCodeColumn, -1);
+		});
+
+		test('ignores brackets written inside a comment', () => {
+			const scanner = new JsonataScanner();
+			scanner.scanLine('/* ( [ { */ $.foo');
+
+			assert.strictEqual(scanner.isBalanced, true);
+		});
+
+		test('ignores brackets written inside a string literal', () => {
+			const scanner = new JsonataScanner();
+			scanner.scanLine('$foo["a)b"]');
+
+			assert.strictEqual(scanner.isBalanced, true);
 		});
 
 		test('flags a closing bracket that has no opener', () => {
-			const state = createScanState();
-			scanLine('$.foo)', state);
+			const scanner = new JsonataScanner();
+			scanner.scanLine('$.foo)');
 
-			assert.strictEqual(state.mismatched, true);
+			assert.strictEqual(scanner.isMismatched, true);
+			assert.strictEqual(scanner.isBalanced, false);
 		});
-	});
 
-	suite('isCompleteExpression', () => {
-		const complete = [
-			'$.foo',
-			'$foo["a)b"]',          // bracket inside a double quoted string
-			"$foo['a]b']",          // bracket inside a single quoted string
-			'$."it\'s fine"',       // apostrophe inside a double quoted string
-			'/* ( */ $.foo',        // bracket inside a comment
-			'$sum([1, 2, 3])'
-		];
+		test('reset clears the bracket bookkeeping', () => {
+			const scanner = new JsonataScanner();
 
-		for (const expression of complete) {
-			test(`treats ${JSON.stringify(expression)} as complete`, () => {
-				assert.strictEqual(isCompleteExpression(expression), true);
-			});
-		}
+			scanner.scanLine('$sum(');
+			assert.strictEqual(scanner.isBalanced, false);
 
-		const incomplete = [
-			'$sum(',
-			'/* unterminated',
-			'"unterminated',
-			'$.foo)'
-		];
-
-		for (const expression of incomplete) {
-			test(`treats ${JSON.stringify(expression)} as incomplete`, () => {
-				assert.strictEqual(isCompleteExpression(expression), false);
-			});
-		}
+			scanner.reset();
+			assert.strictEqual(scanner.isBalanced, true);
+		});
 	});
 });

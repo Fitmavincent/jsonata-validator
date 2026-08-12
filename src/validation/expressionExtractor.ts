@@ -1,5 +1,4 @@
-import { createScanState, isBalanced, scanLine } from '../utils/jsonataScanner';
-import { containsJsonataExpression as utilsContainsJsonataExpression } from '../utils/jsonataUtils';
+import { JsonataScanner } from '../utils/jsonataScanner';
 
 export interface ExtractedExpression {
 	expression: string;
@@ -48,7 +47,7 @@ function endsWithOperator(code: string): boolean {
 }
 
 /**
- * Look past blank lines and stand-alone comments to see whether the expression
+ * Looks past blank lines and stand-alone comments to see whether the expression
  * that just balanced actually carries on below.
  */
 function continuesBelow(collectedCode: string, lines: string[], lineIndex: number): boolean {
@@ -56,12 +55,12 @@ function continuesBelow(collectedCode: string, lines: string[], lineIndex: numbe
 		return true;
 	}
 
-	// Safe to start from a clean state: this is only called once the expression
-	// has balanced, which means no string or block comment is left open.
-	const lookahead = createScanState();
+	// A fresh scanner is safe here: this is only reached once the expression has
+	// balanced, so there is no block comment left open to carry over.
+	const lookahead = new JsonataScanner();
 
 	for (let i = lineIndex + 1; i < lines.length; i++) {
-		const scan = scanLine(lines[i], lookahead);
+		const scan = lookahead.scanLine(lines[i]);
 		if (scan.firstCodeColumn !== -1) {
 			return startsWithContinuation(scan.code.slice(scan.firstCodeColumn));
 		}
@@ -85,94 +84,63 @@ function continuesBelow(collectedCode: string, lines: string[], lineIndex: numbe
 export function extractJsonataExpressionsFromPureJsonata(text: string): ExtractedExpression[] {
 	const expressions: ExtractedExpression[] = [];
 	const lines = text.split('\n');
+	const scanner = new JsonataScanner();
 
-	let state = createScanState();
-	let collected: string[] = [];
-	let collectedCode: string[] = [];
-	let startLine = -1;
-	let startPos = 0;
+	const openLines: string[] = [];
+	const openCode: string[] = [];
+	let expressionStartLine = -1;
+	let expressionStartPos = 0;
 
 	const flush = () => {
-		const expression = collected.join('\n');
-		const lastLine = collected[collected.length - 1] ?? '';
+		const lastLine = openLines[openLines.length - 1] ?? '';
 
 		expressions.push({
-			expression,
-			line: startLine,
-			startPos,
-			endPos: collected.length > 1 ? lastLine.length : startPos + lastLine.length
+			expression: openLines.join('\n'),
+			line: expressionStartLine,
+			startPos: expressionStartPos,
+			endPos: openLines.length > 1 ? lastLine.length : expressionStartPos + lastLine.length
 		});
 
-		collected = [];
-		collectedCode = [];
-		startLine = -1;
-		startPos = 0;
-
-		// Only the bracket bookkeeping belonged to the expression just finished;
-		// a comment or string still open carries on into whatever follows
-		state = {
-			...createScanState(),
-			inBlockComment: state.inBlockComment,
-			stringDelimiter: state.stringDelimiter
-		};
+		openLines.length = 0;
+		openCode.length = 0;
+		expressionStartLine = -1;
+		expressionStartPos = 0;
+		scanner.reset();
 	};
 
 	for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
 		const line = lines[lineIndex];
-		const scan = scanLine(line, state);
+		const scan = scanner.scanLine(line);
 
-		if (startLine === -1) {
+		if (expressionStartLine === -1) {
 			// Blank lines and stand-alone comments sit between expressions
 			if (scan.firstCodeColumn === -1) {
 				continue;
 			}
 
-			startLine = lineIndex;
-			startPos = scan.firstCodeColumn;
-			collected.push(line.slice(scan.firstCodeColumn).trimEnd());
-			collectedCode.push(scan.code.slice(scan.firstCodeColumn));
+			expressionStartLine = lineIndex;
+			expressionStartPos = scan.firstCodeColumn;
+			openLines.push(line.slice(scan.firstCodeColumn).trimEnd());
+			openCode.push(scan.code.slice(scan.firstCodeColumn));
 		} else {
-			collected.push(line);
-			collectedCode.push(scan.code);
+			// Preserve the original formatting so error positions still line up
+			openLines.push(line);
+			openCode.push(scan.code);
 		}
 
-		// A mismatched bracket can never be resolved by reading further, so end
+		// A mismatched bracket can never be repaired by reading further, so end
 		// the expression here and let the rest of the file be checked on its own
-		if (state.mismatched) {
-			flush();
-		} else if (isBalanced(state) && !continuesBelow(collectedCode.join('\n'), lines, lineIndex)) {
+		const done = scanner.isMismatched ||
+					 (scanner.isBalanced && !continuesBelow(openCode.join('\n'), lines, lineIndex));
+
+		if (done) {
 			flush();
 		}
 	}
 
 	// The file ended mid-expression - report what we have so the error surfaces
-	if (startLine !== -1) {
+	if (expressionStartLine !== -1) {
 		flush();
-	}
-
-	return expressions;
-}
-
-/**
- * Extract JSONata expressions from a single line (for JSON files)
- */
-export function extractJsonataExpressionsFromLine(line: string): Array<{expression: string, startPos: number, endPos: number}> {
-	const expressions: Array<{expression: string, startPos: number, endPos: number}> = [];
-
-	// Extract expressions from JSON string values
-	const stringRegex = /"([^"\\]*(\\.[^"\\]*)*)"/g;
-	let match;
-
-	while ((match = stringRegex.exec(line)) !== null) {
-		const stringContent = match[1];
-		// Check if this string contains JSONata patterns
-		if (utilsContainsJsonataExpression(stringContent)) {
-			expressions.push({
-				expression: stringContent,
-				startPos: match.index + 1, // +1 to skip opening quote
-				endPos: match.index + match[0].length - 1 // -1 to skip closing quote
-			});
-		}
 	}
 
 	return expressions;
