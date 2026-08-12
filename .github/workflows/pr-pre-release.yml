@@ -1,0 +1,100 @@
+name: PR – build & publish pre-release
+
+on:
+  pull_request:
+    branches: [master]
+    types: [opened, synchronize, reopened, ready_for_review]
+
+# One run per PR; a new push cancels the in-flight run so we never publish a
+# stale commit over a newer one.
+concurrency:
+  group: pre-release-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build, test & publish pre-release
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Type check
+        run: npm run check-types
+
+      - name: Lint
+        run: npm run lint
+
+      # vscode-test downloads a full VS Code build on every run otherwise.
+      - name: Cache VS Code test binaries
+        uses: actions/cache@v6
+        with:
+          path: .vscode-test
+          key: vscode-test-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: vscode-test-${{ runner.os }}-
+
+      # vscode-test launches a real VS Code instance, which needs a display.
+      - name: Test
+        run: xvfb-run -a npm test
+
+      # Pre-releases live on an ODD minor, releases on an EVEN minor, as the VS
+      # Code docs recommend — that keeps every pre-release numerically above the
+      # current release so opted-in users are never auto-downgraded to stable.
+      # The patch is github.run_number, which only ever increases, so each push
+      # to the PR gets a fresh, monotonic version.
+      - name: Compute pre-release version
+        id: version
+        run: |
+          node -e '
+            const fs = require("fs");
+            const [major, minor] = require("./package.json").version.split(".").map(Number);
+            const preMinor = minor % 2 === 0 ? minor + 1 : minor;
+            const version = [major, preMinor, process.env.GITHUB_RUN_NUMBER].join(".");
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, "version=" + version + "\n");
+            console.log("pre-release version:", version);
+          '
+
+      # --no-git-tag-version: bump package.json in the workspace only, never commit.
+      - name: Stamp version
+        run: npm version "${{ steps.version.outputs.version }}" --no-git-tag-version
+
+      - name: Package
+        run: npx --yes @vscode/vsce@3 package --pre-release --out "jsonata-validator-${{ steps.version.outputs.version }}.vsix"
+
+      - name: Upload VSIX artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: jsonata-validator-${{ steps.version.outputs.version }}
+          path: "*.vsix"
+          if-no-files-found: error
+
+      # Skipped for draft PRs (every publish burns a public version number) and
+      # for fork PRs, which have no access to secrets. Drop the `!...draft`
+      # clause if you want drafts published too.
+      - name: Publish pre-release to Marketplace
+        if: >-
+          !github.event.pull_request.draft &&
+          github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: npx --yes @vscode/vsce@3 publish --pre-release --packagePath "jsonata-validator-${{ steps.version.outputs.version }}.vsix" --skip-duplicate
+
+      - name: Summary
+        run: |
+          echo "### Pre-release \`${{ steps.version.outputs.version }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          if [ "${{ github.event.pull_request.draft }}" = "true" ]; then
+            echo "Draft PR — VSIX built and attached as an artifact, not published." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Published to the Marketplace. Install it with **Switch to Pre-Release Version** on the extension page." >> "$GITHUB_STEP_SUMMARY"
+          fi
