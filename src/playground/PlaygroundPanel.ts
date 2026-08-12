@@ -1,7 +1,11 @@
 import * as vscode from 'vscode';
-import { PlaygroundWebviewManager } from './PlaygroundWebviewManager';
+import {
+    PlaygroundWebviewManager,
+    PlaygroundState,
+    DEFAULT_JSON_INPUT,
+    DEFAULT_JSONATA_EXPRESSION
+} from './PlaygroundWebviewManager';
 import { PlaygroundEditorManager } from './PlaygroundEditorManager';
-import { ValidationService } from '../validation/ValidationService';
 
 /**
  * Manages the webview panel for the JSONata playground
@@ -16,12 +20,11 @@ export class PlaygroundPanel {
 
     constructor(
         private context: vscode.ExtensionContext,
-        private validationService?: ValidationService,
         private onShareCallback?: () => Promise<void>,
         private onImportCallback?: () => Promise<void>
     ) {
         // Initialize editor manager first
-        this.editorManager = new PlaygroundEditorManager(context);
+        this.editorManager = new PlaygroundEditorManager();
 
         // Create the webview panel for results - it will be positioned after editors are created
         this.panel = vscode.window.createWebviewPanel(
@@ -44,8 +47,8 @@ export class PlaygroundPanel {
             dark: vscode.Uri.joinPath(this.context.extensionUri, 'media', 'playground-dark.svg')
         };
 
-        // Initialize webview manager for results display with validation service
-        this.webviewManager = new PlaygroundWebviewManager(this.panel.webview, this.context, this.validationService);
+        // Initialize webview manager for results display
+        this.webviewManager = new PlaygroundWebviewManager(this.panel.webview, this.context);
 
         // Set up event handlers
         this.setupEventHandlers();
@@ -55,16 +58,12 @@ export class PlaygroundPanel {
     }
 
     private async initializePlayground(): Promise<void> {
-        // Create editor instances with specific layout
-        const defaultJsonInput = '{\n  "example": [\n    {"value": 4},\n    {"value": 7},\n    {"value": 13}\n  ]\n}';
-        const defaultJsonataExpression = 'example[value > 5].value';
-
         try {
             // Step 1: Create JSON input editor in Column 1 (left side)
-            this.jsonInputEditor = await this.editorManager.createJsonInputEditor(defaultJsonInput);
+            this.jsonInputEditor = await this.editorManager.createJsonInputEditor(DEFAULT_JSON_INPUT);
 
             // Step 2: Create JSONata expression editor in Column 2 (top right)
-            this.jsonataExpressionEditor = await this.editorManager.createJsonataExpressionEditor(defaultJsonataExpression);
+            this.jsonataExpressionEditor = await this.editorManager.createJsonataExpressionEditor(DEFAULT_JSONATA_EXPRESSION);
 
             // Step 3: Set up change listeners for real-time updates
             this.editorManager.setOnJsonInputChange((content) => {
@@ -86,11 +85,9 @@ export class PlaygroundPanel {
                 await this.ensureProperLayout();
             }, 300);
 
-            // Step 6: Trigger initial evaluation and update available editors
-            this.webviewManager.updateJsonInput(defaultJsonInput);
-            this.webviewManager.updateJsonataExpression(defaultJsonataExpression);
-
-            // Initialize available editors list
+            // Step 6: Initialize available editors list. The manager already
+            // evaluated the defaults when it was constructed, and the webview
+            // pulls the current state as soon as it loads.
             this.webviewManager.updateAvailableEditors();
 
         } catch (error) {
@@ -130,6 +127,13 @@ export class PlaygroundPanel {
             null,
             this.disposables
         );
+    }
+
+    /**
+     * The current evaluation state, used when exporting a session
+     */
+    public get currentState(): PlaygroundState {
+        return this.webviewManager.currentState;
     }
 
     /**
@@ -256,10 +260,4 @@ export class PlaygroundPanel {
         }
     }
 
-    /**
-     * Manually reorganizes the layout to the desired 3-panel structure
-     */
-    public async reorganizeLayout(): Promise<void> {
-        await this.ensureProperLayout();
-    }
 }

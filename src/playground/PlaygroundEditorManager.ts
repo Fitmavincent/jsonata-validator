@@ -10,7 +10,7 @@ export class PlaygroundEditorManager {
     private onJsonInputChangeCallback?: (content: string) => void;
     private onJsonataExpressionChangeCallback?: (content: string) => void;
 
-    constructor(private context: vscode.ExtensionContext) {
+    constructor() {
         this.setupDocumentChangeListeners();
     }
 
@@ -103,13 +103,7 @@ export class PlaygroundEditorManager {
         }
     }
 
-    public getJsonInputContent(): string {
-        return this.jsonInputDocument?.getText() || '';
-    }
 
-    public getJsonataExpressionContent(): string {
-        return this.jsonataExpressionDocument?.getText() || '';
-    }
 
     public dispose(): void {
         // Close the documents by closing their tabs

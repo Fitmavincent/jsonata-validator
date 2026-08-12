@@ -1,6 +1,5 @@
 import * as vscode from 'vscode';
 import { PlaygroundPanel } from './PlaygroundPanel';
-import { ValidationService } from '../validation/ValidationService';
 import { ExportService } from '../share/ExportService';
 import { ImportService } from '../share/ImportService';
 
@@ -11,17 +10,14 @@ export class PlaygroundProvider {
     private static instance: PlaygroundProvider;
     private currentPanel: PlaygroundPanel | undefined;
 
-    private constructor(
-        private context: vscode.ExtensionContext,
-        private validationService?: ValidationService
-    ) {}
+    private constructor(private context: vscode.ExtensionContext) {}
 
-    public static getInstance(context?: vscode.ExtensionContext, validationService?: ValidationService): PlaygroundProvider {
+    public static getInstance(context?: vscode.ExtensionContext): PlaygroundProvider {
         if (!PlaygroundProvider.instance) {
             if (!context) {
                 throw new Error('Context is required to create PlaygroundProvider instance');
             }
-            PlaygroundProvider.instance = new PlaygroundProvider(context, validationService);
+            PlaygroundProvider.instance = new PlaygroundProvider(context);
         }
         return PlaygroundProvider.instance;
     }
@@ -46,7 +42,6 @@ export class PlaygroundProvider {
             // Create new panel with callbacks
             this.currentPanel = new PlaygroundPanel(
                 this.context,
-                this.validationService,
                 onShareCallback,
                 onImportCallback
             );
@@ -58,22 +53,7 @@ export class PlaygroundProvider {
         }
     }
 
-    /**
-     * Closes the playground panel if it exists
-     */
-    public closePlayground(): void {
-        if (this.currentPanel) {
-            this.currentPanel.dispose();
-            this.currentPanel = undefined;
-        }
-    }
 
-    /**
-     * Checks if the playground is currently open
-     */
-    public isPlaygroundOpen(): boolean {
-        return this.currentPanel !== undefined;
-    }
 
     /**
      * Gets the current playground panel instance

@@ -190,10 +190,4 @@ export class ImportService {
         return await this.importSession(playgroundProvider, 'clipboard');
     }
 
-    /**
-     * Quick import from file with minimal UI
-     */
-    public static async quickImportFromFile(playgroundProvider: PlaygroundProvider): Promise<boolean> {
-        return await this.importSession(playgroundProvider, 'file');
-    }
 }

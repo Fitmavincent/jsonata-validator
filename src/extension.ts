@@ -4,8 +4,13 @@ import * as vscode from 'vscode';
 import { PlaygroundProvider } from './playground/PlaygroundProvider';
 import { ValidationService } from './validation/ValidationService';
 import { isJsonataFile } from './utils/jsonataUtils';
+import { getValidatorConfiguration, registerConfigurationWatcher } from './utils/configuration';
+import { Debouncer } from './utils/debounce';
 import { ExportService } from './share/ExportService';
 import { ImportService } from './share/ImportService';
+
+// How long typing has to pause before a document is re-validated
+const VALIDATION_DEBOUNCE_MS = 500;
 
 // Diagnostic collection for JSONata validation errors
 let diagnosticCollection: vscode.DiagnosticCollection;
@@ -26,8 +31,8 @@ export function activate(context: vscode.ExtensionContext) {
 	// Initialize validation service
 	validationService = new ValidationService(diagnosticCollection);
 
-	// Initialize playground provider with validation service
-	const playgroundProvider = PlaygroundProvider.getInstance(context, validationService);
+	// Initialize playground provider
+	const playgroundProvider = PlaygroundProvider.getInstance(context);
 
 	// Register commands
 	const validateDocumentCommand = vscode.commands.registerCommand('jsonata-validator.validateDocument', () => {
@@ -97,23 +102,28 @@ export function activate(context: vscode.ExtensionContext) {
 	});
 
 	// Register event listeners
+	const validationDebouncer = new Debouncer(VALIDATION_DEBOUNCE_MS);
+
+	const configurationWatcher = registerConfigurationWatcher();
+
 	const onDidChangeTextDocument = vscode.workspace.onDidChangeTextDocument(event => {
-		const config = vscode.workspace.getConfiguration('jsonataValidator');
-		if (config.get<boolean>('validateOnType', true)) {
-			if (isJsonataFile(event.document)) {
-				// Debounce validation to avoid too frequent calls
-				setTimeout(() => validationService.validateDocument(event.document), 500);
-			}
+		if (!isJsonataFile(event.document) || !getValidatorConfiguration().validateOnType) {
+			return;
 		}
+
+		// Collapse a burst of keystrokes into a single validation pass
+		const document = event.document;
+		validationDebouncer.schedule(() => validationService.validateDocument(document), document.uri.toString());
 	});
 
 	const onDidSaveTextDocument = vscode.workspace.onDidSaveTextDocument(document => {
-		const config = vscode.workspace.getConfiguration('jsonataValidator');
-		if (config.get<boolean>('validateOnSave', true)) {
-			if (isJsonataFile(document)) {
-				validationService.validateDocument(document);
-			}
+		if (!isJsonataFile(document) || !getValidatorConfiguration().validateOnSave) {
+			return;
 		}
+
+		// Saving supersedes anything the debouncer is still holding
+		validationDebouncer.cancel(document.uri.toString());
+		validationService.validateDocument(document);
 	});
 
 	const onDidOpenTextDocument = vscode.workspace.onDidOpenTextDocument(document => {
@@ -123,6 +133,7 @@ export function activate(context: vscode.ExtensionContext) {
 	});
 
 	const onDidCloseTextDocument = vscode.workspace.onDidCloseTextDocument(document => {
+		validationDebouncer.cancel(document.uri.toString());
 		diagnosticCollection.delete(document.uri);
 	});
 
@@ -140,7 +151,9 @@ export function activate(context: vscode.ExtensionContext) {
 		onDidChangeTextDocument,
 		onDidSaveTextDocument,
 		onDidOpenTextDocument,
-		onDidCloseTextDocument
+		onDidCloseTextDocument,
+		configurationWatcher,
+		validationDebouncer
 	);
 
 	// Validate already open documents
