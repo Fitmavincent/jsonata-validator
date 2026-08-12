@@ -3,7 +3,7 @@
   "publisher": "Fitmavincent",
   "displayName": "jsonata-validator",
   "description": "A jsonata validator extention that can validate jsonata template",
-  "version": "1.4.4",
+  "version": "1.5.0",
   "pricing": "Free",
   "license": "MIT",
   "engines": {
@@ -168,6 +168,11 @@
           "type": "number",
           "default": 100,
           "description": "Maximum number of problems to report"
+        },
+        "jsonataValidator.warnOnUnsupportedLineComments": {
+          "type": "boolean",
+          "default": true,
+          "description": "Warn about '//' comments, which JSONata does not support. JSONata only understands block comments: /* ... */"
         }
       }
     }

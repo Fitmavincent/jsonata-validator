@@ -64,6 +64,8 @@ suite('Validation behaviour inside VS Code', () => {
 	teardown(async () => {
 		await vscode.workspace.getConfiguration(SECTION)
 			.update('validateOnType', undefined, vscode.ConfigurationTarget.Global);
+		await vscode.workspace.getConfiguration(SECTION)
+			.update('warnOnUnsupportedLineComments', undefined, vscode.ConfigurationTarget.Global);
 		// Revert first: closing a dirty editor puts up a save prompt and hangs
 		await vscode.commands.executeCommand('workbench.action.revertAndCloseActiveEditor');
 		await vscode.commands.executeCommand('workbench.action.closeAllEditors');
@@ -217,11 +219,11 @@ suite('Validation behaviour inside VS Code', () => {
 
 	test('Comments and blank lines do not shift diagnostic positions', async () => {
 		const editor = await openJsonata([
-			'// leading comment',
+			'/* leading comment */',
 			'',
 			'$.firstName',
 			'',
-			'// another comment',
+			'/* another comment */',
 			'$.invalid..syntax'
 		].join('\n'));
 
@@ -254,5 +256,84 @@ suite('Validation behaviour inside VS Code', () => {
 			diagnostics[0].range.start.line >= 1,
 			'The diagnostic belongs to the expression starting at the unclosed bracket'
 		);
+	});
+
+	// https://github.com/Fitmavincent/jsonata-validator/issues/1
+	test('A multi-line block comment is not reported as a syntax error', async () => {
+		const editor = await openJsonata([
+			'/*',
+			' * Everyone still on the books',
+			' */',
+			'$.users[active = true].name /* one per user */'
+		].join('\n'));
+
+		await vscode.commands.executeCommand('jsonata-validator.validateDocument');
+		await new Promise(resolve => setTimeout(resolve, 500));
+
+		assert.deepStrictEqual(
+			jsonataDiagnostics(editor.document.uri).map(d => d.message), [],
+			'Comments should not produce diagnostics'
+		);
+	});
+
+	test('An expression continued on the next line is not split apart', async () => {
+		const editor = await openJsonata('$.products.price\n  ~> $sum()');
+
+		await vscode.commands.executeCommand('jsonata-validator.validateDocument');
+		await new Promise(resolve => setTimeout(resolve, 500));
+
+		assert.deepStrictEqual(
+			jsonataDiagnostics(editor.document.uri).map(d => d.message), [],
+			'A continuation line should not be validated on its own'
+		);
+	});
+
+	test('A // comment is a warning, and the rest of the file still validates', async () => {
+		const editor = await openJsonata('// JSONata has no line comments\n$.invalid..syntax');
+
+		await vscode.commands.executeCommand('jsonata-validator.validateDocument');
+		await waitFor(() => jsonataDiagnostics(editor.document.uri).length === 2);
+
+		const diagnostics = jsonataDiagnostics(editor.document.uri);
+		const errors = diagnostics.filter(d => d.severity === vscode.DiagnosticSeverity.Error);
+		const warnings = diagnostics.filter(d => d.severity === vscode.DiagnosticSeverity.Warning);
+
+		assert.strictEqual(warnings.length, 1, 'The line comment should be warned about');
+		assert.strictEqual(warnings[0].code, 'unsupported-line-comment');
+		assert.strictEqual(warnings[0].range.start.line, 0);
+
+		assert.strictEqual(errors.length, 1, 'The broken expression should still be reported');
+		assert.strictEqual(errors[0].range.start.line, 1);
+	});
+
+	test('warnOnUnsupportedLineComments=false silences the warning', async () => {
+		await vscode.workspace.getConfiguration(SECTION)
+			.update('warnOnUnsupportedLineComments', false, vscode.ConfigurationTarget.Global);
+
+		const editor = await openJsonata('// JSONata has no line comments\n$.firstName');
+
+		await vscode.commands.executeCommand('jsonata-validator.validateDocument');
+		await new Promise(resolve => setTimeout(resolve, 500));
+
+		assert.deepStrictEqual(jsonataDiagnostics(editor.document.uri).map(d => d.message), []);
+	});
+
+	test('Turning the warning back on refreshes what is already open', async () => {
+		await vscode.workspace.getConfiguration(SECTION)
+			.update('warnOnUnsupportedLineComments', false, vscode.ConfigurationTarget.Global);
+
+		const editor = await openJsonata('// JSONata has no line comments\n$.firstName');
+
+		await vscode.commands.executeCommand('jsonata-validator.validateDocument');
+		await new Promise(resolve => setTimeout(resolve, 500));
+		assert.strictEqual(jsonataDiagnostics(editor.document.uri).length, 0);
+
+		// No edit follows, so this only works if the settings change itself
+		// triggers a re-validation of the open document
+		await vscode.workspace.getConfiguration(SECTION)
+			.update('warnOnUnsupportedLineComments', true, vscode.ConfigurationTarget.Global);
+
+		const warned = await waitFor(() => jsonataDiagnostics(editor.document.uri).length > 0);
+		assert.ok(warned, 'The warning should appear without touching the document');
 	});
 });

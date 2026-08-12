@@ -4,6 +4,43 @@ All notable changes to the "jsonata-validator" extension will be documented in t
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [1.5.0]
+
+### Fixed
+- **Comments are no longer reported as syntax errors** ([#1](https://github.com/Fitmavincent/jsonata-validator/issues/1)):
+  the validator only recognised a comment when a line *started* with `/*`, so
+  the continuation lines of a multi-line block comment were each validated as
+  standalone expressions and flagged as invalid. Comments are now understood
+  wherever they appear — above an expression, inline, or spanning many lines —
+  including brackets and quotes written inside them
+- **Expressions spread over several lines without brackets** (`~>`, `&`, `+`
+  and friends at a line boundary) are no longer split apart and reported as
+  errors
+
+### Added
+- `jsonataValidator.warnOnUnsupportedLineComments` (default `true`): JSONata
+  has no `//` line comments, and a stray one used to surface as a confusing
+  `S0301 Empty regular expressions are not allowed` or `S0302 No terminating /
+  in regular expression`, because the parser reads the `/` as a regex. These are
+  now reported as a plain warning that names the real problem, and the rest of
+  the file still validates
+- Diagnostics refresh when JSONata Validator settings change, so toggling a
+  setting updates what is already on screen
+
+### Changed
+- The `examples/` templates use block comments, since `//` is not valid JSONata
+
+### Technical
+- `BracketScanner` becomes `JsonataScanner`: it now tracks comments as well as
+  brackets and strings, and returns each line with its comments blanked out so
+  columns still line up with the document. Block comment state carries across
+  lines; quote state still deliberately does not
+- `ValidationService` compiles the whole document first and only falls back to
+  splitting it into separate expressions when that fails, which lets JSONata
+  itself deal with comments and line breaks instead of a line-based heuristic
+- Unit suites for the scanner and the expression extractor, plus integration
+  coverage for the issue above and for the new setting
+
 ## [Unreleased]
 
 ### Performance
