@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import jsonata from 'jsonata';
 import { extractJsonataExpressionsFromPureJsonata } from './expressionExtractor';
+import { LineCommentLocation, stripComments } from '../utils/jsonataUtils';
 
 /**
  * Validation service for JSONata expressions
@@ -42,13 +43,15 @@ export class ValidationService {
         }
 
         const diagnostics = this.validateJsonataText(selectedText, document, selection.start);
+        const errorCount = diagnostics.filter(d => d.severity === vscode.DiagnosticSeverity.Error).length;
 
         // Show results in a message
-        if (diagnostics.length === 0) {
-            vscode.window.showInformationMessage('✓ JSONata selection is valid');
-        } else {
-            const errorCount = diagnostics.length;
+        if (errorCount > 0) {
             vscode.window.showErrorMessage(`✗ JSONata selection has ${errorCount} error${errorCount > 1 ? 's' : ''}`);
+        } else if (diagnostics.length > 0) {
+            vscode.window.showWarningMessage(`✓ JSONata selection is valid, with ${diagnostics.length} warning${diagnostics.length > 1 ? 's' : ''}`);
+        } else {
+            vscode.window.showInformationMessage('✓ JSONata selection is valid');
         }
     }
 
@@ -65,26 +68,86 @@ export class ValidationService {
             return diagnostics;
         }
 
-        // For JSONata files, validate the entire content as JSONata expressions
-        const expressions = extractJsonataExpressionsFromPureJsonata(text);
+        // Comments are blanked out rather than removed, so every remaining
+        // character keeps the column the diagnostics will point at.
+        const { text: code, lineComments } = stripComments(text);
 
-        for (const expression of expressions) {
-            if (diagnostics.length >= maxProblems) {
-                break;
+        // A .jsonata file is normally a single expression, and JSONata itself
+        // copes with comments, line breaks and operators spread over several
+        // lines far better than any line-based heuristic can. Only when the
+        // whole document fails to compile is it worth splitting the text up to
+        // work out which part is at fault.
+        if (code.trim() && !this.compiles(code)) {
+            const expressions = extractJsonataExpressionsFromPureJsonata(code);
+
+            for (const expression of expressions) {
+                if (diagnostics.length >= maxProblems) {
+                    break;
+                }
+
+                const expressionDiagnostics = this.validateSingleJsonataExpression(
+                    expression.expression,
+                    document,
+                    expression.line,
+                    expression.startPos,
+                    expression.endPos,
+                    offset
+                );
+                diagnostics.push(...expressionDiagnostics);
             }
+        }
 
-            const expressionDiagnostics = this.validateSingleJsonataExpression(
-                expression.expression,
-                document,
-                expression.line,
-                expression.startPos,
-                expression.endPos,
-                offset
-            );
-            diagnostics.push(...expressionDiagnostics);
+        if (config.get<boolean>('warnOnUnsupportedLineComments', true)) {
+            for (const lineComment of lineComments) {
+                if (diagnostics.length >= maxProblems) {
+                    break;
+                }
+
+                diagnostics.push(this.createLineCommentDiagnostic(lineComment, document, offset));
+            }
         }
 
         return diagnostics;
+    }
+
+    /**
+     * Check whether a JSONata expression compiles
+     */
+    private compiles(expression: string): boolean {
+        try {
+            jsonata(expression);
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
+    /**
+     * Warn about a `//` comment, which JSONata does not support
+     */
+    private createLineCommentDiagnostic(
+        lineComment: LineCommentLocation,
+        document: vscode.TextDocument,
+        offset?: vscode.Position
+    ): vscode.Diagnostic {
+        const range = this.calculateErrorRange(
+            document,
+            lineComment.line,
+            lineComment.character,
+            lineComment.character + lineComment.length,
+            offset
+        );
+
+        const diagnostic = new vscode.Diagnostic(
+            range,
+            "JSONata does not support '//' comments. Use a block comment instead: /* ... */",
+            vscode.DiagnosticSeverity.Warning
+        );
+
+        diagnostic.source = 'jsonata-validator';
+        diagnostic.code = 'unsupported-line-comment';
+
+        return diagnostic;
     }
 
     /**

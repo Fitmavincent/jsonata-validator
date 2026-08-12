@@ -4,6 +4,43 @@ All notable changes to the "jsonata-validator" extension will be documented in t
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [1.5.0]
+
+### Fixed
+- **Comments are no longer reported as syntax errors** ([#1](https://github.com/Fitmavincent/jsonata-validator/issues/1)):
+  the validator only recognised a comment when a line *started* with `/*`, so
+  the continuation lines of a multi-line block comment were each validated as
+  standalone expressions and flagged as invalid. Comments are now understood
+  wherever they appear — above an expression, inline, or spanning many lines —
+  including brackets and quotes written inside them
+- **Expressions spread over several lines without brackets** (`~>`, `&`, `+`
+  and friends at a line boundary) are no longer split apart and reported as
+  errors
+- **Brackets inside string literals** no longer confuse expression boundaries;
+  the scanner now tracks which quote character opened a string, so
+  `$foo["a]b"]` is read correctly
+- **Validation on type is now actually debounced.** Every keystroke used to
+  schedule its own full re-validation 500ms later; a burst of typing now
+  results in a single pass
+
+### Added
+- `jsonataValidator.warnOnUnsupportedLineComments` (default `true`): JSONata
+  has no `//` line comments, and a stray one used to surface as a confusing
+  `S0301 Empty regular expressions are not allowed` or `S0302 No terminating /
+  in regular expression`. These are now reported as a plain warning that names
+  the real problem, and the rest of the file still validates
+- Diagnostics refresh when JSONata Validator settings change
+
+### Technical
+- New `jsonataScanner` module: a small comment/string-aware scanner, kept free
+  of any `vscode` import so it can be tested on its own
+- `ValidationService` now compiles the whole document first and only falls back
+  to splitting it into separate expressions when that fails, which lets JSONata
+  itself deal with comments and line breaks instead of a line-based heuristic
+- Unit test suites for the scanner and the expression extractor
+- Fixed the extension ID used by the test suite, which silently skipped
+  activation and left three tests failing
+
 ## [Unreleased]
 
 ### Added

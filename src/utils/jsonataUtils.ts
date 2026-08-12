@@ -26,44 +26,12 @@ export function containsJsonataExpression(text: string): boolean {
 	return jsonataPatterns.some(pattern => pattern.test(text));
 }
 
-/**
- * Check if a JSONata expression appears to be complete
- * This is a heuristic check for basic bracket/parentheses matching
- */
-export function isCompleteExpression(expression: string): boolean {
-	const brackets = { '(': ')', '[': ']', '{': '}' };
-	const stack: string[] = [];
-	let inString = false;
-	let escaped = false;
-
-	for (let i = 0; i < expression.length; i++) {
-		const char = expression[i];
-
-		if (escaped) {
-			escaped = false;
-			continue;
-		}
-
-		if (char === '\\') {
-			escaped = true;
-			continue;
-		}
-
-		if (char === '"' || char === "'") {
-			inString = !inString;
-			continue;
-		}
-
-		if (!inString) {
-			if (char in brackets) {
-				stack.push(brackets[char as keyof typeof brackets]);
-			} else if (Object.values(brackets).includes(char)) {
-				if (stack.length === 0 || stack.pop() !== char) {
-					return false; // Mismatched brackets
-				}
-			}
-		}
-	}
-
-	return stack.length === 0; // Complete if no unclosed brackets
-}
+// Re-exported so callers have a single entry point for JSONata text handling
+export {
+	createScanState,
+	isBalanced,
+	isCompleteExpression,
+	scanLine,
+	stripComments
+} from './jsonataScanner';
+export type { LineCommentLocation, LineScan, ScanState } from './jsonataScanner';
