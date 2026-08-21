@@ -4,7 +4,7 @@
   "displayName": "jsonata-validator",
   "description": "A jsonata validator extention that can validate jsonata template",
   "icon": "media/icon.png",
-  "version": "1.5.0",
+  "version": "1.5.1",
   "pricing": "Free",
   "license": "MIT",
   "engines": {

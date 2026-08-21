@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { Debouncer } from '../utils/debounce';
 import { compileExpression } from '../utils/expressionCache';
+import { offsetToPosition, resolveErrorOffsets } from '../utils/errorPosition';
 
 /** Content the playground starts with, and falls back to when a source closes */
 export const DEFAULT_JSON_INPUT = '{\n  "example": [\n    {"value": 4},\n    {"value": 7},\n    {"value": 13}\n  ]\n}';
@@ -29,8 +30,12 @@ interface ErrorDetails {
     position?: number;
     token?: string;
     value?: string;
+    /** Start of the offending source span, zero-based */
     line?: number;
     character?: number;
+    /** End of the offending source span, zero-based and exclusive */
+    endLine?: number;
+    endCharacter?: number;
     type: 'compilation' | 'runtime' | 'json-parse';
     suggestion?: string;
 }
@@ -178,9 +183,6 @@ export class PlaygroundWebviewManager {
             case 'copyResult':
                 this.copyResultToClipboard();
                 break;
-            case 'getJsonataExpression':
-                this.sendJsonataExpressionToWebview();
-                break;
             case 'shareSession':
                 this.handleShareSession();
                 break;
@@ -224,19 +226,6 @@ export class PlaygroundWebviewManager {
         } else {
             vscode.window.showErrorMessage('Import functionality is not available.');
         }
-    }
-
-    /**
-     * Sends the current JSONata expression to the webview for error highlighting
-     */
-    private sendJsonataExpressionToWebview(): void {
-        this.webview.postMessage({
-            type: 'jsonataExpression',
-            data: {
-                expression: this.state.jsonataExpression,
-                errorDetails: this.state.errorDetails
-            }
-        });
     }
 
     /**
@@ -485,35 +474,30 @@ export class PlaygroundWebviewManager {
             errorDetails.code = error.code;
         }
 
-        if (error.position !== undefined) {
-            errorDetails.position = error.position;
-
-            // Calculate line and character position from the position
-            const lines = this.state.jsonataExpression.split('\n');
-            let currentPosition = 0;
-            let line = 0;
-            let character = 0;
-
-            for (let i = 0; i < lines.length; i++) {
-                const lineLength = lines[i].length;
-                if (error.position <= currentPosition + lineLength) {
-                    line = i;
-                    character = error.position - currentPosition;
-                    break;
-                }
-                currentPosition += lineLength + 1; // +1 for newline
-            }
-
-            errorDetails.line = line;
-            errorDetails.character = character;
-        }
-
         if (error.token) {
             errorDetails.token = error.token;
         }
 
-        if (error.value) {
-            errorDetails.value = error.value;
+        // `value` is the expected token for compilation errors, and the value
+        // that tripped the evaluation up - of any type - for runtime ones
+        if (error.value !== undefined) {
+            errorDetails.value = typeof error.value === 'string'
+                ? error.value
+                : JSON.stringify(error.value);
+        }
+
+        if (error.position !== undefined) {
+            errorDetails.position = error.position;
+
+            const expression = this.state.jsonataExpression;
+            const offsets = resolveErrorOffsets(expression, error.position, errorDetails.token);
+            const start = offsetToPosition(expression, offsets.start);
+            const end = offsetToPosition(expression, offsets.end);
+
+            errorDetails.line = start.line;
+            errorDetails.character = start.character;
+            errorDetails.endLine = end.line;
+            errorDetails.endCharacter = end.character;
         }
 
         // Add helpful suggestion
@@ -535,12 +519,6 @@ export class PlaygroundWebviewManager {
             message = `[${errorDetails.code}] ${message}`;
         }
 
-        if (errorDetails.token && errorDetails.value &&
-            errorDetails.token !== errorDetails.value &&
-            errorDetails.value !== 'undefined') {
-            message += ` (expected '${errorDetails.value}', got '${errorDetails.token}')`;
-        }
-
         if (errorDetails.line !== undefined && errorDetails.character !== undefined) {
             message += ` at line ${errorDetails.line + 1}, character ${errorDetails.character + 1}`;
         } else if (errorDetails.position !== undefined) {
@@ -548,9 +526,8 @@ export class PlaygroundWebviewManager {
         }
 
         // Add helpful suggestions for common errors
-        const suggestion = this.getErrorSuggestion(errorDetails);
-        if (suggestion) {
-            message += `\n\n💡 Suggestion: ${suggestion}`;
+        if (errorDetails.suggestion) {
+            message += `\n\n💡 Suggestion: ${errorDetails.suggestion}`;
         }
 
         return `JSONata ${errorDetails.type} error: ${message}`;
@@ -629,19 +606,15 @@ export class PlaygroundWebviewManager {
             return null;
         }
 
-        // Create the range for the error
+        // Highlight the span the error points at, which createDetailedErrorInfo
+        // has already walked back from JSONata's past-the-token offset
         const startPos = new vscode.Position(errorDetails.line, errorDetails.character);
-        let endPos = startPos;
+        const endPos = new vscode.Position(
+            errorDetails.endLine ?? errorDetails.line,
+            errorDetails.endCharacter ?? errorDetails.character + 1
+        );
 
-        // If we have a token, highlight the entire token
-        if (errorDetails.token && errorDetails.token !== '(end)') {
-            endPos = new vscode.Position(errorDetails.line, errorDetails.character + errorDetails.token.length);
-        } else {
-            // Default to highlighting one character
-            endPos = new vscode.Position(errorDetails.line, errorDetails.character + 1);
-        }
-
-        const range = new vscode.Range(startPos, endPos);
+        const range = new vscode.Range(startPos, endPos.isAfter(startPos) ? endPos : startPos.translate(0, 1));
 
         // Create the diagnostic message
         let message = errorDetails.message;
@@ -649,16 +622,10 @@ export class PlaygroundWebviewManager {
             message = `[${errorDetails.code}] ${message}`;
         }
 
-        if (errorDetails.token && errorDetails.value &&
-            errorDetails.token !== errorDetails.value &&
-            errorDetails.value !== 'undefined') {
-            message += ` (expected '${errorDetails.value}', got '${errorDetails.token}')`;
-        }
-
         const diagnostic = new vscode.Diagnostic(
             range,
             message,
-            errorDetails.type === 'compilation' ? vscode.DiagnosticSeverity.Error : vscode.DiagnosticSeverity.Warning
+            vscode.DiagnosticSeverity.Error
         );
 
         diagnostic.source = 'jsonata-playground';
@@ -685,6 +652,19 @@ export class PlaygroundWebviewManager {
         const message = errorDetails.message?.toLowerCase() || '';
 
         // Common error patterns and suggestions
+        if (code === 'D3030') {
+            const value = errorDetails.value !== undefined ? ` '${errorDetails.value}'` : '';
+            return `The input value${value} is not a valid number. Check the JSON input, or guard the cast with $exists()/$match() before calling $number().`;
+        }
+
+        if (code === 'T1006') {
+            return `'${token ?? 'The name'}' is not a function. Check the spelling, or use $$ to reach the top-level input if you meant a field.`;
+        }
+
+        if (code?.startsWith('T04') || code?.startsWith('T20')) {
+            return 'The value reaching this point is not the type the operator or function expects. Check the JSON input for a missing or differently typed field.';
+        }
+
         if (code === 'S0211' && token === '.') {
             return 'The dot operator cannot be used as a unary operator. Check for missing parentheses or operators before the dot.';
         }
@@ -945,7 +925,9 @@ export class PlaygroundWebviewManager {
             flex: 1;
             position: relative;
             min-height: 0;
-            overflow: hidden;
+            /* The error panel is taller than the result box it replaces, so it
+               has to be able to scroll rather than be clipped */
+            overflow: auto;
         }
 
         .result-content {
@@ -1483,14 +1465,18 @@ export class PlaygroundWebviewManager {
                 currentErrorDetails = state.errorDetails;
 
                 if (state.error) {
-                    error.innerHTML = formatError(state.error, state.errorDetails);
+                    error.innerHTML = formatError(state.error, state.errorDetails, state.jsonataExpression);
                     error.style.display = 'block';
+                    // #result fills the panel, so it has to give up its space or
+                    // the error panel is pushed out of view entirely
+                    result.style.display = 'none';
                     result.innerHTML = '';
                     currentResultText = '';
                     copyBtn.style.display = 'none';
                     updateStatus('Error in evaluation', true);
                 } else {
                     error.style.display = 'none';
+                    result.style.display = 'block';
                     currentResultText = state.result;
 
                     // Apply JSON highlighting
@@ -1509,7 +1495,7 @@ export class PlaygroundWebviewManager {
                 }
             }
 
-            function formatError(errorMessage, errorDetails) {
+            function formatError(errorMessage, errorDetails, jsonataExpression) {
                 if (!errorDetails) {
                     return \`<div class="error-message">\${escapeHtml(errorMessage)}</div>\`;
                 }
@@ -1543,8 +1529,11 @@ export class PlaygroundWebviewManager {
                         html += \`<div><strong>Token:</strong> '\${escapeHtml(errorDetails.token)}'</div>\`;
                     }
 
-                    if (errorDetails.value && errorDetails.value !== errorDetails.token) {
-                        html += \`<div><strong>Expected:</strong> '\${escapeHtml(errorDetails.value)}'</div>\`;
+                    // JSONata puts the expected token in 'value' when parsing,
+                    // and the value that broke the evaluation there at runtime
+                    if (errorDetails.value !== undefined && errorDetails.value !== errorDetails.token) {
+                        const label = errorDetails.type === 'compilation' ? 'Expected' : 'Offending value';
+                        html += \`<div><strong>\${label}:</strong> '\${escapeHtml(errorDetails.value)}'</div>\`;
                     }
 
                     html += '</div>';
@@ -1552,7 +1541,7 @@ export class PlaygroundWebviewManager {
 
                 // Add code snippet with error highlighting if we have position information
                 if (errorDetails.line !== undefined && errorDetails.character !== undefined) {
-                    html += formatCodeSnippetWithError(errorDetails);
+                    html += formatCodeSnippetWithError(jsonataExpression, errorDetails);
                 }
 
                 // Add suggestion if available
@@ -1588,8 +1577,13 @@ export class PlaygroundWebviewManager {
                     errorText += \`Token: '\${errorDetails.token}'\\n\`;
                 }
 
-                if (errorDetails.value && errorDetails.value !== errorDetails.token) {
-                    errorText += \`Expected: '\${errorDetails.value}'\\n\`;
+                if (errorDetails.value !== undefined && errorDetails.value !== errorDetails.token) {
+                    const label = errorDetails.type === 'compilation' ? 'Expected' : 'Offending value';
+                    errorText += \`\${label}: '\${errorDetails.value}'\\n\`;
+                }
+
+                if (errorDetails.suggestion) {
+                    errorText += \`Suggestion: \${errorDetails.suggestion}\\n\`;
                 }
 
                 navigator.clipboard.writeText(errorText).then(() => {
@@ -1613,58 +1607,47 @@ export class PlaygroundWebviewManager {
                 }
             });
 
-            function formatCodeSnippetWithError(errorDetails) {
-                // Get the current JSONata expression from the webview state
-                // We'll request it from the extension
-                vscode.postMessage({ type: 'getJsonataExpression' });
-
-                // For now, we'll create a placeholder that will be updated
-                return \`
-                    <div class="error-code-snippet" id="errorCodeSnippet">
-                        <div class="error-location">Error location will be highlighted when available</div>
-                    </div>
-                \`;
-            }
-
-            function updateCodeSnippetWithError(jsonataExpression, errorDetails) {
-                const snippetElement = document.getElementById('errorCodeSnippet');
-                if (!snippetElement || !jsonataExpression || errorDetails.line === undefined) {
-                    return;
+            // Renders the offending lines with the error span picked out, so the
+            // problem is visible here even when the template lives in an editor
+            // the user is not currently looking at.
+            function formatCodeSnippetWithError(jsonataExpression, errorDetails) {
+                if (!jsonataExpression) {
+                    return '';
                 }
 
                 const lines = jsonataExpression.split('\\n');
-                const errorLine = errorDetails.line;
-                const errorChar = errorDetails.character || 0;
+                const firstErrorLine = errorDetails.line;
+                const lastErrorLine = errorDetails.endLine === undefined ? firstErrorLine : errorDetails.endLine;
 
-                // Show context: 2 lines before and after the error line
-                const startLine = Math.max(0, errorLine - 2);
-                const endLine = Math.min(lines.length - 1, errorLine + 2);
+                // Show context: 2 lines either side of the error
+                const startLine = Math.max(0, firstErrorLine - 2);
+                const endLine = Math.min(lines.length - 1, lastErrorLine + 2);
 
                 let html = '';
                 for (let i = startLine; i <= endLine; i++) {
-                    const lineNumber = i + 1;
                     const lineContent = lines[i] || '';
-                    const isErrorLine = i === errorLine;
+                    const isErrorLine = i >= firstErrorLine && i <= lastErrorLine;
 
                     let displayLine = escapeHtml(lineContent);
 
-                    if (isErrorLine && errorChar < lineContent.length) {
-                        // Highlight the error position
-                        const beforeError = escapeHtml(lineContent.substring(0, errorChar));
-                        const errorToken = errorDetails.token || lineContent.charAt(errorChar) || '';
-                        const afterError = escapeHtml(lineContent.substring(errorChar + errorToken.length));
+                    if (isErrorLine) {
+                        // The span may start part way into the first line and
+                        // end part way into the last; whole lines in between
+                        const from = i === firstErrorLine ? Math.min(errorDetails.character || 0, lineContent.length) : 0;
+                        const to = i === lastErrorLine
+                            ? Math.min(Math.max(errorDetails.endCharacter ?? lineContent.length, from + 1), lineContent.length)
+                            : lineContent.length;
 
-                        displayLine = \`\${beforeError}<span class="error-highlight">\${escapeHtml(errorToken)}</span>\${afterError}\`;
+                        displayLine = escapeHtml(lineContent.substring(0, from))
+                            + \`<span class="error-highlight">\${escapeHtml(lineContent.substring(from, to))}</span>\`
+                            + escapeHtml(lineContent.substring(to));
                     }
 
-                    html += \`
-                        <span class="error-line \${isErrorLine ? 'highlighted' : ''}">
-                            <span class="line-number">\${lineNumber}</span>\${displayLine}
-                        </span>\\n
-                    \`;
+                    // .error-line is a block, so no newline between the lines
+                    html += \`<span class="error-line \${isErrorLine ? 'highlighted' : ''}"><span class="line-number">\${i + 1}</span>\${displayLine}</span>\`;
                 }
 
-                snippetElement.innerHTML = html;
+                return \`<div class="error-code-snippet">\${html}</div>\`;
             }
 
             function escapeHtml(unsafe) {
@@ -1725,9 +1708,6 @@ export class PlaygroundWebviewManager {
                 switch (message.type) {
                     case 'updateState':
                         handleStateUpdate(message.data);
-                        break;
-                    case 'jsonataExpression':
-                        updateCodeSnippetWithError(message.data.expression, message.data.errorDetails);
                         break;
                     case 'copySuccess':
                         // Show success state
