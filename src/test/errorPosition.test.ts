@@ -47,6 +47,10 @@ suite('Error Position Test Suite', () => {
 		test('falls back when the token does not line up with the position', () => {
 			assert.deepStrictEqual(resolveErrorOffsets('a + b', 3, 'nowhere'), { start: 2, end: 3 });
 		});
+
+		test('never returns an empty span, so there is always something to highlight', () => {
+			assert.deepStrictEqual(resolveErrorOffsets('a', 0, '(end)'), { start: 0, end: 1 });
+		});
 	});
 
 	suite('real JSONata errors', () => {

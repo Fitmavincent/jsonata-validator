@@ -1,30 +1,12 @@
 /**
- * A zero-based location within an expression
- */
-export interface ExpressionPosition {
-	line: number;
-	character: number;
-}
-
-/**
- * The span of source text an error refers to, as zero-based offsets
- */
-export interface ErrorOffsets {
-	start: number;
-	end: number;
-}
-
-/**
  * Converts an offset into the line and character it falls on.
  */
-export function offsetToPosition(text: string, offset: number): ExpressionPosition {
-	const clamped = Math.min(Math.max(offset, 0), text.length);
-	const before = text.slice(0, clamped);
-	const lastBreak = before.lastIndexOf('\n');
+export function offsetToPosition(text: string, offset: number): { line: number; character: number } {
+	const before = text.slice(0, Math.max(offset, 0));
 
 	return {
 		line: before.split('\n').length - 1,
-		character: clamped - (lastBreak + 1)
+		character: before.length - (before.lastIndexOf('\n') + 1)
 	};
 }
 
@@ -35,14 +17,17 @@ export function offsetToPosition(text: string, offset: number): ExpressionPositi
  * and for a function call it has already consumed the `(` that follows the
  * name. Reporting that offset verbatim underlines whatever happens to come
  * next - `model` in `$number(model.value)` - so walk back to the token the
- * user actually wrote.
+ * user actually wrote. The span is never empty, so it always highlights.
  */
-export function resolveErrorOffsets(expression: string, position: number, token?: string): ErrorOffsets {
+export function resolveErrorOffsets(expression: string, position: number, token?: string): { start: number; end: number } {
 	const end = Math.min(Math.max(position, 0), expression.length);
 
-	// `(end)` means the parser ran out of input; there is no token to point at
+	// Nothing to point at: flag the character the parser stopped on
+	const stoppedHere = { start: Math.max(0, end - 1), end: Math.max(end, 1) };
+
+	// `(end)` means the parser ran out of input; there is no token to walk back to
 	if (!token || token === '(end)') {
-		return { start: Math.max(0, end - 1), end };
+		return stoppedHere;
 	}
 
 	// A function invocation error names the function but points past its `(`
@@ -50,8 +35,7 @@ export function resolveErrorOffsets(expression: string, position: number, token?
 	let start = tokenEnd - token.length;
 
 	if (start < 0 || expression.slice(start, tokenEnd) !== token) {
-		// The token does not line up - fall back to the reported offset
-		return { start: Math.max(0, end - 1), end };
+		return stoppedHere;
 	}
 
 	// Include the `$` that introduces a function or variable name

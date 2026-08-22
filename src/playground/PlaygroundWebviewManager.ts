@@ -602,19 +602,17 @@ export class PlaygroundWebviewManager {
      * Creates a VS Code diagnostic from error details
      */
     private createDiagnosticFromError(errorDetails: ErrorDetails): vscode.Diagnostic | null {
-        if (errorDetails.line === undefined || errorDetails.character === undefined) {
+        if (errorDetails.line === undefined || errorDetails.character === undefined ||
+            errorDetails.endLine === undefined || errorDetails.endCharacter === undefined) {
             return null;
         }
 
         // Highlight the span the error points at, which createDetailedErrorInfo
         // has already walked back from JSONata's past-the-token offset
-        const startPos = new vscode.Position(errorDetails.line, errorDetails.character);
-        const endPos = new vscode.Position(
-            errorDetails.endLine ?? errorDetails.line,
-            errorDetails.endCharacter ?? errorDetails.character + 1
+        const range = new vscode.Range(
+            new vscode.Position(errorDetails.line, errorDetails.character),
+            new vscode.Position(errorDetails.endLine, errorDetails.endCharacter)
         );
-
-        const range = new vscode.Range(startPos, endPos.isAfter(startPos) ? endPos : startPos.translate(0, 1));
 
         // Create the diagnostic message
         let message = errorDetails.message;
@@ -661,10 +659,6 @@ export class PlaygroundWebviewManager {
             return `'${token ?? 'The name'}' is not a function. Check the spelling, or use $$ to reach the top-level input if you meant a field.`;
         }
 
-        if (code?.startsWith('T04') || code?.startsWith('T20')) {
-            return 'The value reaching this point is not the type the operator or function expects. Check the JSON input for a missing or differently typed field.';
-        }
-
         if (code === 'S0211' && token === '.') {
             return 'The dot operator cannot be used as a unary operator. Check for missing parentheses or operators before the dot.';
         }
@@ -689,7 +683,7 @@ export class PlaygroundWebviewManager {
             return 'Remove the trailing comma. JSONata does not allow trailing commas in object or array literals.';
         }
 
-        if (message.includes('undefined') || code === 'T1006') {
+        if (message.includes('undefined')) {
             return 'Check that all variables and functions are properly defined and spelled correctly.';
         }
 
@@ -1617,7 +1611,7 @@ export class PlaygroundWebviewManager {
 
                 const lines = jsonataExpression.split('\\n');
                 const firstErrorLine = errorDetails.line;
-                const lastErrorLine = errorDetails.endLine === undefined ? firstErrorLine : errorDetails.endLine;
+                const lastErrorLine = errorDetails.endLine;
 
                 // Show context: 2 lines either side of the error
                 const startLine = Math.max(0, firstErrorLine - 2);
@@ -1633,10 +1627,8 @@ export class PlaygroundWebviewManager {
                     if (isErrorLine) {
                         // The span may start part way into the first line and
                         // end part way into the last; whole lines in between
-                        const from = i === firstErrorLine ? Math.min(errorDetails.character || 0, lineContent.length) : 0;
-                        const to = i === lastErrorLine
-                            ? Math.min(Math.max(errorDetails.endCharacter ?? lineContent.length, from + 1), lineContent.length)
-                            : lineContent.length;
+                        const from = i === firstErrorLine ? errorDetails.character : 0;
+                        const to = i === lastErrorLine ? errorDetails.endCharacter : lineContent.length;
 
                         displayLine = escapeHtml(lineContent.substring(0, from))
                             + \`<span class="error-highlight">\${escapeHtml(lineContent.substring(from, to))}</span>\`
