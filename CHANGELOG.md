@@ -4,6 +4,72 @@ All notable changes to the "jsonata-validator" extension will be documented in t
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [1.6.0]
+
+### Release numbering
+- **The release line moves to `1.6.x`, skipping `1.5.2`.** Releases are supposed
+  to sit on an even minor and pre-releases on the odd minor above, so opted-in
+  users are never auto-downgraded to stable. The `1.4.4` → `1.5.0` bump moved
+  releases by one instead of two, putting `1.5.0` and `1.5.1` on the odd minor
+  that pre-releases already used, and pre-release `1.5.6` has since been
+  published from the same line. Going to `1.6.0` separates the two channels
+  again and puts pre-releases back on `1.7.<run number>`
+
+### Changed
+- **The playground results panel is a real editor again**
+  ([#3](https://github.com/Fitmavincent/jsonata-validator/issues/3)): the panel
+  was a webview rendering the result as static, syntax-coloured text. It could
+  be copied wholesale and nothing else - no folding an object or an array shut,
+  no outline, no Find, no selecting one section to copy out of a large result.
+  Results now open in a read-only JSON editor, so everything VS Code does for a
+  `.json` file works: collapsing sections, bracket matching, Find, Go to Symbol,
+  and ordinary selection and copy
+- **The output still cannot be edited.** The result document is served by a
+  content provider, which VS Code treats as read-only, so the panel keeps
+  showing what the expression actually produced
+- **Errors are reported as a source-framed report** rather than as a dumped
+  object, alongside the existing squiggle on the expression. The report names
+  the phase and code, then shows the offending line with the failing span
+  underlined in place, and the suggestion below it:
+
+  ```
+  runtime error [D3030]: Unable to cast value to a number: "n/a"
+
+    ┌─ expression:3:12
+    │
+  3 │   "total": $number(price) * qty
+    │            ^^^^^^^
+    │
+    = help: The input value 'n/a' is not a valid number. Check the JSON input, or
+            guard the cast with $exists()/$match() before calling $number().
+  ```
+
+  A wide line is windowed around the error so the caret cannot scroll off
+  screen, a multi-line expression is framed on the line that actually failed,
+  and a bad input document is framed against the JSON instead of the
+  expression. The panel takes its own language while a report is showing, so
+  the report is not buried under JSON parse squiggles of the editor's own
+  making, and returns to JSON as soon as the expression evaluates. Colours are
+  resolved from the active theme rather than hard-coded
+- **The three panels are laid out explicitly** rather than assembled by
+  splitting the active editor, so the result reliably lands in the bottom-right
+  group instead of depending on what was focused at the time
+- The webview's controls moved to the result editor's title bar and the command
+  palette: **Copy Result**, **Refresh**, **Select Sources**, **Share** and
+  **Import**
+
+### Fixed
+- Choosing an external editor as a source and then switching back to the
+  playground's own editor left the previous file's content loaded. Every source
+  change now re-reads whichever editor is selected
+- Closing a source file fell back to the playground's starting content, throwing
+  away what was in the playground's own editor. It now falls back to that editor
+- Closing the playground focused each of its documents in turn and closed
+  whatever was active, which stole focus and could close a tab the playground
+  did not own. Its tabs are now closed by identity
+- An expression matching nothing wrote the text `undefined` into the results
+  panel, which is not valid JSON. It now shows `null`
+
 ## [1.5.1]
 
 ### Fixed

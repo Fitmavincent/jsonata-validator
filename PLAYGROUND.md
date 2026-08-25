@@ -4,11 +4,13 @@ The JSONata Playground is an interactive environment for testing and experimenti
 
 ## Features
 
-- **Native VS Code editors**: JSON Input and JSONata Expression panels use real VS Code editors
+- **Native VS Code editors**: all three panels are real VS Code editors
 - **AI tool integration**: Full access to Copilot, Cline, and other AI extensions in input panels
 - **Real-time evaluation**: Expressions are evaluated as you type with debouncing
 - **Error handling**: Both compilation and runtime errors are displayed with detailed messages
 - **Syntax highlighting**: Full VS Code editor experience with IntelliSense
+- **Foldable results**: the Results panel is a read-only JSON editor, so objects and arrays collapse, sections select and copy cleanly, and the outline and Find work as they do anywhere else
+- **Tamper-proof output**: the Results panel cannot be edited, so what it shows is always what the expression produced
 - **Persistent state**: Content is maintained while the panel is open
 - **Three-panel layout**: JSON Input (Column 1), JSONata Expression (Column 2), Results (Column 3)
 
@@ -109,7 +111,8 @@ When you open the playground, VS Code will automatically arrange three panels fo
    }
    ```
 
-3. **Results Panel** (Column 3): See the output automatically
+3. **Results Panel** (Column 3, bottom right): See the output automatically, in a
+   read-only JSON editor you can fold, search and copy from
    ```json
    [
      {"name": "Laptop", "discounted": 899.1, "category": "Electronics"},
@@ -118,6 +121,36 @@ When you open the playground, VS Code will automatically arrange three panels fo
    ```
 
 ## Error Handling
+
+Errors are reported in two places at once: as a red squiggle on the offending
+part of the expression, and in the Results panel as a source-framed report.
+
+```
+runtime error [D3030]: Unable to cast value to a number: "n/a"
+
+  ┌─ expression:3:12
+  │
+3 │   "total": $number(price) * qty
+  │            ^^^^^^^
+  │
+  = help: The input value 'n/a' is not a valid number. Check the JSON input, or
+          guard the cast with $exists()/$match() before calling $number().
+```
+
+The report is built the way compilers have long since settled on, because it
+answers the three questions in order: what went wrong, where, and what the line
+actually says. The offending span is underlined in place, so a mistake in a long
+or multi-line expression does not send you back to hunt for it — and a very wide
+line is windowed around the error rather than scrolling the caret off screen.
+
+The panel switches to its own language while a report is showing, so the report
+is never buried under JSON parse squiggles of the editor's own making, and it
+switches back to JSON the moment the expression evaluates again. Colours come
+from the active theme rather than being hard-coded, so the report reads correctly
+in light, dark and high-contrast.
+
+A bad **input document** is framed the same way, against the JSON rather than the
+expression, pointing at the line the parser stopped on.
 
 The playground handles both types of JSONata errors:
 
@@ -138,6 +171,11 @@ The playground handles both types of JSONata errors:
 |---------|-------------|
 | `jsonata-validator.openPlayground` | Open the playground |
 | `jsonata-validator.openPlaygroundWithSelection` | Open playground with selected text as expression |
+| `jsonata-validator.copyPlaygroundResult` | Copy the current result to the clipboard |
+| `jsonata-validator.refreshPlaygroundResult` | Re-read every source and evaluate again |
+| `jsonata-validator.selectPlaygroundSources` | Choose which open editors feed the input and the expression |
+
+The last three are also buttons in the Results panel's title bar.
 
 ## Keyboard Shortcuts
 
@@ -158,9 +196,12 @@ The playground feature is built with a modular architecture:
 ```
 src/
 ├── playground/
-│   ├── PlaygroundProvider.ts     # Main controller
-│   ├── PlaygroundPanel.ts        # Panel management
-│   └── PlaygroundWebviewManager.ts # Webview content & messaging
+│   ├── PlaygroundProvider.ts          # Main controller
+│   ├── PlaygroundPanel.ts             # Panel and layout management
+│   ├── PlaygroundEditorManager.ts     # The two input editors
+│   ├── PlaygroundSession.ts           # Evaluation and error reporting
+│   ├── PlaygroundResultDocument.ts    # Read-only result document
+│   └── errorReport.ts                 # Source-framed error rendering
 ├── validation/
 │   ├── ValidationService.ts      # Validation logic
 │   └── expressionExtractor.ts    # Expression parsing

@@ -58,8 +58,13 @@ jobs:
             const version = require("./package.json").version;
             const minor = Number(version.split(".")[1]);
             fs.appendFileSync(process.env.GITHUB_OUTPUT, "version=" + version + "\n");
+            // Hard failure rather than a warning: an odd minor puts releases on
+            // the pre-release line, where --skip-duplicate turns a colliding
+            // release into a silent no-op and a higher release auto-downgrades
+            // pre-release users to stable. A warning here was missed twice.
             if (minor % 2 !== 0) {
-              console.log("::warning::Release version " + version + " has an odd minor, which is reserved for pre-releases. Bump to an even minor to keep the two channels apart.");
+              console.log("::error::Release version " + version + " has an odd minor, which is reserved for pre-releases. Move the minor by two so the two channels stay apart - see .github/RELEASING.md.");
+              process.exit(1);
             }
             console.log("release version:", version);
           '
