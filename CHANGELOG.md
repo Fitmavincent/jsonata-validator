@@ -4,7 +4,16 @@ All notable changes to the "jsonata-validator" extension will be documented in t
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
-## [1.5.2]
+## [1.6.0]
+
+### Release numbering
+- **The release line moves to `1.6.x`, skipping `1.5.2`.** Releases are supposed
+  to sit on an even minor and pre-releases on the odd minor above, so opted-in
+  users are never auto-downgraded to stable. The `1.4.4` → `1.5.0` bump moved
+  releases by one instead of two, putting `1.5.0` and `1.5.1` on the odd minor
+  that pre-releases already used, and pre-release `1.5.6` has since been
+  published from the same line. Going to `1.6.0` separates the two channels
+  again and puts pre-releases back on `1.7.<run number>`
 
 ### Changed
 - **The playground results panel is a real editor again**

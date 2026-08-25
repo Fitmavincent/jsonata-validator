@@ -8,7 +8,7 @@ to install it globally (that global install is what produced the `EACCES` error 
 
 | Trigger | Workflow | Version | Marketplace channel |
 | --- | --- | --- | --- |
-| PR opened / pushed against `master` | [`pr-pre-release.yml`](workflows/pr-pre-release.yml) | `1.5.<run number>` | Pre-release |
+| PR opened / pushed against `master` | [`pr-pre-release.yml`](workflows/pr-pre-release.yml) | `1.7.<run number>` | Pre-release |
 | Push to `master` | [`release.yml`](workflows/release.yml) | version in `package.json` | Release |
 
 ### Why the version numbers look like that
@@ -20,28 +20,57 @@ to stable.
 
 The fix is the scheme VS Code recommends: **even minor = release, odd minor = pre-release.**
 
-- Release lives on `1.4.x`. Bump it in `package.json` as part of your PR.
-- Pre-release is derived automatically as `1.5.<github.run_number>` — the run number
-  only ever increases, so every push to every PR gets a fresh, ordered version.
+- Release lives on `1.6.x`. Bump it in `package.json` as part of your PR.
+- Pre-release is *derived* from that number rather than written down anywhere: the
+  workflow takes the minor in `package.json` and, if it is even, adds one. So a
+  release line of `1.6.x` produces `1.7.<github.run_number>`. The run number only
+  ever increases, so every push to every PR gets a fresh, ordered version.
 
-Publishing `1.4.5` while `1.5.207` exists is fine: the Marketplace tracks
+Publishing `1.6.5` while `1.7.207` exists is fine: the Marketplace tracks
 monotonicity per channel, which is exactly how `ms-python.python`, `GitHub.copilot-chat`
 and friends operate.
 
-When you bump the release, move the minor by **two** (`1.4.x` → `1.6.x`) so the
-pre-release channel jumps to `1.7.x` and stays ahead.
+### The one rule that matters
+
+**When you bump the release, move the minor by two** (`1.6.x` → `1.8.x`), so the
+pre-release channel jumps with it and stays ahead. Never land the release on an
+odd minor. `release.yml` fails the build if you do.
+
+Moving by *one* is the failure mode, because the derivation above has no effect on
+an already-odd minor: it leaves it alone. Both channels then publish from the same
+line, and two things break.
+
+- A release that collides with an existing pre-release version is **silently
+  skipped** rather than failing, because the publish step passes `--skip-duplicate`.
+  The workflow goes green and ships nothing.
+- Any release numbered above the latest pre-release auto-updates pre-release users
+  back to stable — the exact problem the scheme exists to prevent.
+
+This is not hypothetical. `1.4.4` → `1.5.0` moved by one, so `1.5.0` and `1.5.1`
+shipped as *releases* on the odd minor that pre-releases were already using, and
+pre-release `1.5.6` was later published from the same line. `1.6.0` is the repair:
+it puts releases back on an even minor and pre-releases back on `1.7.x`.
+
+One transitional wrinkle from that repair: `1.6.0` is numerically above the
+stranded `1.5.6` pre-release, so pre-release users land on stable `1.6.0` until the
+next PR publishes a `1.7.x`. That is harmless — the two builds carry the same code
+— and it resolves itself on the next pre-release.
 
 ## Cutting a release
 
 1. Branch off `master`, do the work.
-2. Bump `version` in `package.json` (even minor) and add a `CHANGELOG.md` entry.
+2. Bump `version` in `package.json` — patch or minor, and if minor, **by two** so
+   it stays even — and add a `CHANGELOG.md` entry.
 3. Open the PR. Each push builds, lints, type-checks, tests, and publishes a
    pre-release. Draft PRs build and attach the `.vsix` as an artifact but do not publish.
 4. Merge. `release.yml` republishes from `master` as a release, tags `v<version>`,
    and creates a GitHub Release with the `.vsix` attached.
 
 Re-running a release on an already-published version is a no-op, not a failure
-(`--skip-duplicate`), so merges that don't bump the version are harmless.
+(`--skip-duplicate`), so merges that don't bump the version are harmless. That same
+flag is why an odd minor is dangerous rather than merely untidy: a release
+colliding with a pre-release would be skipped without failing the build. The
+even-minor check in `release.yml` is what stops that from happening quietly.
 
 ## One-time setup: the `VSCE_PAT` secret
 
