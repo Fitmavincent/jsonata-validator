@@ -35,6 +35,12 @@
           ".jsonata"
         ],
         "configuration": "./language-configuration.json"
+      },
+      {
+        "id": "jsonata-result",
+        "aliases": [
+          "JSONata Result"
+        ]
       }
     ],
     "commands": [

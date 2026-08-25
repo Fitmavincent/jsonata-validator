@@ -24,7 +24,7 @@ suite('Playground Result Document Test Suite', () => {
 	});
 
 	test('serves the content it was given', async () => {
-		result.setContent('{\n  "a": 1\n}');
+		result.setResult('{\n  "a": 1\n}');
 		const document = await readDocument(result);
 		assert.strictEqual(document.getText(), '{\n  "a": 1\n}');
 	});
@@ -39,8 +39,8 @@ suite('Playground Result Document Test Suite', () => {
 	});
 
 	test('falls back to valid JSON when there is nothing to show', () => {
-		result.setContent('{"a": 1}');
-		result.setContent('   ');
+		result.setResult('{"a": 1}');
+		result.setResult('   ');
 
 		// Valid JSON either way, so the panel keeps its syntax colours and never
 		// picks up a parse squiggle of its own
@@ -49,12 +49,12 @@ suite('Playground Result Document Test Suite', () => {
 	});
 
 	test('reports the text that copy-result hands out', () => {
-		result.setContent('[1, 2, 3]');
+		result.setResult('[1, 2, 3]');
 		assert.strictEqual(result.text, '[1, 2, 3]');
 	});
 
 	test('rejects edits, so the output cannot be tampered with', async () => {
-		result.setContent('{"untouched": true}');
+		result.setResult('{"untouched": true}');
 		const document = await readDocument(result);
 		const editor = await vscode.window.showTextDocument(document, { preview: false });
 
@@ -74,7 +74,7 @@ suite('Playground Result Document Test Suite', () => {
 	});
 
 	test('typing into the result panel changes nothing', async () => {
-		result.setContent('[1, 2, 3]');
+		result.setResult('[1, 2, 3]');
 		const document = await readDocument(result);
 		await vscode.window.showTextDocument(document, { preview: false });
 

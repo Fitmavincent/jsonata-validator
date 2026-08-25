@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { ErrorReport, ReportSpan, ReportStyle } from './errorReport';
 
 /** Scheme for the playground's result document */
 export const RESULT_SCHEME = 'jsonata-result';
@@ -14,6 +15,24 @@ const RESULT_URI = vscode.Uri.parse(`${RESULT_SCHEME}:/JSONata Result.json`);
 const EMPTY_RESULT = 'null';
 
 /**
+ * An error report is not JSON, so it gets a language of its own. Leaving it as
+ * `json` would bury the report under parse squiggles of the editor's own making.
+ */
+const ERROR_LANGUAGE = 'jsonata-result';
+const RESULT_LANGUAGE = 'json';
+
+/**
+ * Resolved against the active colour theme rather than hard-coded, so the
+ * report reads correctly in light, dark and high-contrast alike.
+ */
+const STYLE_COLORS: Record<ReportStyle, string> = {
+    error: 'editorError.foreground',
+    muted: 'descriptionForeground',
+    location: 'textLink.foreground',
+    hint: 'editorInfo.foreground'
+};
+
+/**
  * Backs the playground's result panel with a virtual document.
  *
  * Documents served by a TextDocumentContentProvider are read-only in VS Code,
@@ -25,10 +44,34 @@ export class PlaygroundResultDocument implements vscode.TextDocumentContentProvi
     public readonly onDidChange = this.changeEmitter.event;
 
     private content = EMPTY_RESULT;
-    private readonly registration: vscode.Disposable;
+    private language = RESULT_LANGUAGE;
+    private spans: ReportSpan[] = [];
+
+    private readonly decorations = new Map<ReportStyle, vscode.TextEditorDecorationType>();
+    private readonly disposables: vscode.Disposable[] = [];
 
     constructor() {
-        this.registration = vscode.workspace.registerTextDocumentContentProvider(RESULT_SCHEME, this);
+        this.disposables.push(
+            vscode.workspace.registerTextDocumentContentProvider(RESULT_SCHEME, this)
+        );
+
+        for (const [style, color] of Object.entries(STYLE_COLORS) as [ReportStyle, string][]) {
+            this.decorations.set(style, vscode.window.createTextEditorDecorationType({
+                color: new vscode.ThemeColor(color),
+                fontWeight: style === 'error' ? 'bold' : undefined
+            }));
+        }
+
+        // Decorations are per-editor and are lost when the panel is hidden or
+        // the content is replaced, so they are re-applied on both
+        this.disposables.push(
+            vscode.window.onDidChangeVisibleTextEditors(() => this.applyDecorations()),
+            vscode.workspace.onDidChangeTextDocument(event => {
+                if (event.document.uri.toString() === RESULT_URI.toString()) {
+                    this.applyDecorations();
+                }
+            })
+        );
     }
 
     public get uri(): vscode.Uri {
@@ -44,19 +87,72 @@ export class PlaygroundResultDocument implements vscode.TextDocumentContentProvi
         return this.content;
     }
 
-    /**
-     * Replaces the document body. VS Code re-reads the content on the change
-     * event, which preserves the reader's folds and scroll position far better
-     * than replacing the whole editor would.
-     */
-    public setContent(content: string): void {
-        const next = content.trim().length > 0 ? content : EMPTY_RESULT;
-        if (this.content === next) {
+    /** Shows evaluated output: pretty-printed JSON, in the JSON language */
+    public setResult(json: string): void {
+        this.publish(json.trim().length > 0 ? json : EMPTY_RESULT, RESULT_LANGUAGE, []);
+    }
+
+    /** Shows a failure as a source-framed report rather than as output */
+    public setError(report: ErrorReport): void {
+        this.publish(report.text, ERROR_LANGUAGE, report.spans);
+    }
+
+    private publish(content: string, language: string, spans: ReportSpan[]): void {
+        const languageChanged = language !== this.language;
+        const contentChanged = content !== this.content;
+
+        this.spans = spans;
+        this.content = content;
+        this.language = language;
+
+        if (contentChanged) {
+            // VS Code re-reads the content on this event, which preserves the
+            // reader's folds and scroll position far better than replacing the
+            // whole editor would
+            this.changeEmitter.fire(RESULT_URI);
+        }
+
+        if (languageChanged) {
+            this.applyLanguage();
+        }
+
+        this.applyDecorations();
+    }
+
+    /** Re-associates the open document with the language the current state needs */
+    private applyLanguage(): void {
+        const document = vscode.workspace.textDocuments.find(
+            candidate => candidate.uri.toString() === RESULT_URI.toString()
+        );
+
+        if (!document || document.languageId === this.language) {
             return;
         }
 
-        this.content = next;
-        this.changeEmitter.fire(RESULT_URI);
+        Promise.resolve(vscode.languages.setTextDocumentLanguage(document, this.language)).then(
+            () => this.applyDecorations(),
+            error => console.warn('Error setting playground result language:', error)
+        );
+    }
+
+    private applyDecorations(): void {
+        const editors = vscode.window.visibleTextEditors.filter(
+            editor => editor.document.uri.toString() === RESULT_URI.toString()
+        );
+
+        if (editors.length === 0) {
+            return;
+        }
+
+        for (const [style, decoration] of this.decorations) {
+            const ranges = this.spans
+                .filter(span => span.style === style)
+                .map(span => new vscode.Range(span.line, span.start, span.line, span.end));
+
+            for (const editor of editors) {
+                editor.setDecorations(decoration, ranges);
+            }
+        }
     }
 
     /** Opens the result document, without stealing focus from the editor being typed in */
@@ -67,16 +163,25 @@ export class PlaygroundResultDocument implements vscode.TextDocumentContentProvi
         // a playground opened after an earlier one would otherwise start out
         // showing the previous session's output until the next evaluation
         this.changeEmitter.fire(RESULT_URI);
+        this.applyLanguage();
 
-        return vscode.window.showTextDocument(document, {
+        const editor = await vscode.window.showTextDocument(document, {
             viewColumn,
             preserveFocus: true,
             preview: false
         });
+
+        this.applyDecorations();
+        return editor;
     }
 
     public dispose(): void {
-        this.registration.dispose();
+        this.decorations.forEach(decoration => decoration.dispose());
+        this.decorations.clear();
+
+        this.disposables.forEach(disposable => disposable.dispose());
+        this.disposables.length = 0;
+
         this.changeEmitter.dispose();
     }
 }

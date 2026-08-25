@@ -27,10 +27,30 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 - **The output still cannot be edited.** The result document is served by a
   content provider, which VS Code treats as read-only, so the panel keeps
   showing what the expression actually produced
-- **Errors appear in the panel as a `$jsonataError` object** carrying the code,
-  message, position and suggestion, alongside the existing squiggle on the
-  expression. Keeping the panel valid JSON means it holds its folding and
-  colours whether the expression worked or not
+- **Errors are reported as a source-framed report** rather than as a dumped
+  object, alongside the existing squiggle on the expression. The report names
+  the phase and code, then shows the offending line with the failing span
+  underlined in place, and the suggestion below it:
+
+  ```
+  runtime error [D3030]: Unable to cast value to a number: "n/a"
+
+    ┌─ expression:3:12
+    │
+  3 │   "total": $number(price) * qty
+    │            ^^^^^^^
+    │
+    = help: The input value 'n/a' is not a valid number. Check the JSON input, or
+            guard the cast with $exists()/$match() before calling $number().
+  ```
+
+  A wide line is windowed around the error so the caret cannot scroll off
+  screen, a multi-line expression is framed on the line that actually failed,
+  and a bad input document is framed against the JSON instead of the
+  expression. The panel takes its own language while a report is showing, so
+  the report is not buried under JSON parse squiggles of the editor's own
+  making, and returns to JSON as soon as the expression evaluates. Colours are
+  resolved from the active theme rather than hard-coded
 - **The three panels are laid out explicitly** rather than assembled by
   splitting the active editor, so the result reliably lands in the bottom-right
   group instead of depending on what was focused at the time

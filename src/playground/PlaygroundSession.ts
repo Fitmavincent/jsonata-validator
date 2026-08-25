@@ -3,6 +3,7 @@ import { Debouncer } from '../utils/debounce';
 import { compileExpression } from '../utils/expressionCache';
 import { offsetToPosition, resolveErrorOffsets } from '../utils/errorPosition';
 import { PlaygroundResultDocument } from './PlaygroundResultDocument';
+import { ErrorDetails, formatErrorReport } from './errorReport';
 
 /** Content the playground starts with, and falls back to when a source closes */
 export const DEFAULT_JSON_INPUT = '{\n  "example": [\n    {"value": 4},\n    {"value": 7},\n    {"value": 13}\n  ]\n}';
@@ -25,27 +26,34 @@ export interface PlaygroundState {
     selectedTemplateEditor: string | null;
 }
 
-interface ErrorDetails {
-    message: string;
-    code?: string;
-    position?: number;
-    token?: string;
-    value?: string;
-    /** Start of the offending source span, zero-based */
-    line?: number;
-    character?: number;
-    /** End of the offending source span, zero-based and exclusive */
-    endLine?: number;
-    endCharacter?: number;
-    type: 'compilation' | 'runtime' | 'json-parse';
-    suggestion?: string;
-}
-
 interface EditorInfo {
     id: string;
     fileName: string;
     language: string;
     isDirty: boolean;
+}
+
+/**
+ * Digs the offending position out of a JSON.parse message so the report can
+ * frame the input the same way it frames an expression. V8 has carried the
+ * byte offset for years and added "(line L column C)" more recently, so both
+ * spellings are read, newest first.
+ */
+function locateJsonParseError(
+    message: string,
+    jsonInput: string
+): { line: number; character: number } | undefined {
+    const lineColumn = /line (\d+) column (\d+)/.exec(message);
+    if (lineColumn) {
+        return { line: Number(lineColumn[1]) - 1, character: Number(lineColumn[2]) - 1 };
+    }
+
+    const position = /at position (\d+)/.exec(message);
+    if (position) {
+        return offsetToPosition(jsonInput, Number(position[1]));
+    }
+
+    return undefined;
 }
 
 /**
@@ -414,11 +422,13 @@ export class PlaygroundSession {
             try {
                 jsonData = JSON.parse(this.state.jsonInput);
             } catch (error) {
-                const errorMessage = `Invalid JSON input: ${error instanceof Error ? error.message : 'Unknown error'}`;
+                const detail = error instanceof Error ? error.message : 'Unknown error';
+                const errorMessage = `Invalid JSON input: ${detail}`;
                 this.state.error = errorMessage;
                 this.state.errorDetails = {
                     message: errorMessage,
-                    type: 'json-parse'
+                    type: 'json-parse',
+                    ...locateJsonParseError(detail, this.state.jsonInput)
                 };
                 this.state.result = '';
                 this.publishState();
@@ -727,42 +737,14 @@ export class PlaygroundSession {
             });
         }
 
-        this.resultDocument.setContent(this.renderResultDocument());
-    }
-
-    /**
-     * The body of the result document. It stays valid JSON in both the success
-     * and the failure case, so the panel keeps its folding and syntax colours
-     * either way, and a failure never reads as though it were output.
-     */
-    private renderResultDocument(): string {
-        if (!this.state.errorDetails) {
-            return this.state.result;
+        if (this.state.errorDetails) {
+            this.resultDocument.setError(formatErrorReport(this.state.errorDetails, {
+                expression: this.state.jsonataExpression,
+                jsonInput: this.state.jsonInput
+            }));
+        } else {
+            this.resultDocument.setResult(this.state.result);
         }
-
-        const details = this.state.errorDetails;
-        const error: Record<string, unknown> = {
-            type: details.type,
-            message: details.message
-        };
-
-        if (details.code) {
-            error.code = details.code;
-        }
-        if (details.token) {
-            error.token = details.token;
-        }
-        if (details.line !== undefined && details.character !== undefined) {
-            // One-based, to match what the editor's own position indicator shows
-            error.position = { line: details.line + 1, character: details.character + 1 };
-        }
-        if (details.suggestion) {
-            error.suggestion = details.suggestion;
-        }
-
-        // A JSONata expression could in principle produce this key itself, so it
-        // is spelled distinctly enough that the two will not be confused
-        return JSON.stringify({ $jsonataError: error }, null, 2);
     }
 
 

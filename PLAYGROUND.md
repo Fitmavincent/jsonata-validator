@@ -123,10 +123,34 @@ When you open the playground, VS Code will automatically arrange three panels fo
 ## Error Handling
 
 Errors are reported in two places at once: as a red squiggle on the offending
-part of the expression, and in the Results panel as a `$jsonataError` object
-carrying the code, message, position and a suggestion where one applies. Keeping
-the panel valid JSON means it holds its folding and colours even when the
-expression is broken, and a failure never reads as though it were output.
+part of the expression, and in the Results panel as a source-framed report.
+
+```
+runtime error [D3030]: Unable to cast value to a number: "n/a"
+
+  ┌─ expression:3:12
+  │
+3 │   "total": $number(price) * qty
+  │            ^^^^^^^
+  │
+  = help: The input value 'n/a' is not a valid number. Check the JSON input, or
+          guard the cast with $exists()/$match() before calling $number().
+```
+
+The report is built the way compilers have long since settled on, because it
+answers the three questions in order: what went wrong, where, and what the line
+actually says. The offending span is underlined in place, so a mistake in a long
+or multi-line expression does not send you back to hunt for it — and a very wide
+line is windowed around the error rather than scrolling the caret off screen.
+
+The panel switches to its own language while a report is showing, so the report
+is never buried under JSON parse squiggles of the editor's own making, and it
+switches back to JSON the moment the expression evaluates again. Colours come
+from the active theme rather than being hard-coded, so the report reads correctly
+in light, dark and high-contrast.
+
+A bad **input document** is framed the same way, against the JSON rather than the
+expression, pointing at the line the parser stopped on.
 
 The playground handles both types of JSONata errors:
 
@@ -176,7 +200,8 @@ src/
 │   ├── PlaygroundPanel.ts             # Panel and layout management
 │   ├── PlaygroundEditorManager.ts     # The two input editors
 │   ├── PlaygroundSession.ts           # Evaluation and error reporting
-│   └── PlaygroundResultDocument.ts    # Read-only result document
+│   ├── PlaygroundResultDocument.ts    # Read-only result document
+│   └── errorReport.ts                 # Source-framed error rendering
 ├── validation/
 │   ├── ValidationService.ts      # Validation logic
 │   └── expressionExtractor.ts    # Expression parsing
