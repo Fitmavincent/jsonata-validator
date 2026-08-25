@@ -4,6 +4,43 @@ All notable changes to the "jsonata-validator" extension will be documented in t
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [1.5.2]
+
+### Changed
+- **The playground results panel is a real editor again**
+  ([#3](https://github.com/Fitmavincent/jsonata-validator/issues/3)): the panel
+  was a webview rendering the result as static, syntax-coloured text. It could
+  be copied wholesale and nothing else - no folding an object or an array shut,
+  no outline, no Find, no selecting one section to copy out of a large result.
+  Results now open in a read-only JSON editor, so everything VS Code does for a
+  `.json` file works: collapsing sections, bracket matching, Find, Go to Symbol,
+  and ordinary selection and copy
+- **The output still cannot be edited.** The result document is served by a
+  content provider, which VS Code treats as read-only, so the panel keeps
+  showing what the expression actually produced
+- **Errors appear in the panel as a `$jsonataError` object** carrying the code,
+  message, position and suggestion, alongside the existing squiggle on the
+  expression. Keeping the panel valid JSON means it holds its folding and
+  colours whether the expression worked or not
+- **The three panels are laid out explicitly** rather than assembled by
+  splitting the active editor, so the result reliably lands in the bottom-right
+  group instead of depending on what was focused at the time
+- The webview's controls moved to the result editor's title bar and the command
+  palette: **Copy Result**, **Refresh**, **Select Sources**, **Share** and
+  **Import**
+
+### Fixed
+- Choosing an external editor as a source and then switching back to the
+  playground's own editor left the previous file's content loaded. Every source
+  change now re-reads whichever editor is selected
+- Closing a source file fell back to the playground's starting content, throwing
+  away what was in the playground's own editor. It now falls back to that editor
+- Closing the playground focused each of its documents in turn and closed
+  whatever was active, which stole focus and could close a tab the playground
+  did not own. Its tabs are now closed by identity
+- An expression matching nothing wrote the text `undefined` into the results
+  panel, which is not valid JSON. It now shows `null`
+
 ## [1.5.1]
 
 ### Fixed

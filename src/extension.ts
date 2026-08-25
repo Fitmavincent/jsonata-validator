@@ -84,6 +84,19 @@ export function activate(context: vscode.ExtensionContext) {
 		}
 	});
 
+	// Result panel commands, which the result editor's title bar surfaces as buttons
+	const refreshPlaygroundResultCommand = vscode.commands.registerCommand('jsonata-validator.refreshPlaygroundResult', () => {
+		playgroundProvider.getCurrentPlayground()?.refresh();
+	});
+
+	const selectPlaygroundSourcesCommand = vscode.commands.registerCommand('jsonata-validator.selectPlaygroundSources', async () => {
+		await playgroundProvider.getCurrentPlayground()?.pickSources();
+	});
+
+	const copyPlaygroundResultCommand = vscode.commands.registerCommand('jsonata-validator.copyPlaygroundResult', async () => {
+		await playgroundProvider.getCurrentPlayground()?.copyResult();
+	});
+
 	// Share/Import commands
 	const sharePlaygroundSessionCommand = vscode.commands.registerCommand('jsonata-validator.sharePlaygroundSession', async () => {
 		await ExportService.showExportDialog(playgroundProvider);
@@ -152,6 +165,9 @@ export function activate(context: vscode.ExtensionContext) {
 		openPlaygroundCommand,
 		openPlaygroundWithSelectionCommand,
 		populatePlaygroundFromActiveEditor,
+		refreshPlaygroundResultCommand,
+		selectPlaygroundSourcesCommand,
+		copyPlaygroundResultCommand,
 		sharePlaygroundSessionCommand,
 		importPlaygroundSessionCommand,
 		exportPlaygroundToClipboardCommand,

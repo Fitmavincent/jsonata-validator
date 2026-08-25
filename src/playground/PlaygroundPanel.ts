@@ -1,95 +1,76 @@
 import * as vscode from 'vscode';
 import {
-    PlaygroundWebviewManager,
+    PlaygroundSession,
     PlaygroundState,
     DEFAULT_JSON_INPUT,
     DEFAULT_JSONATA_EXPRESSION
-} from './PlaygroundWebviewManager';
+} from './PlaygroundSession';
 import { PlaygroundEditorManager } from './PlaygroundEditorManager';
+import { PlaygroundResultDocument, RESULT_SCHEME } from './PlaygroundResultDocument';
 
 /**
- * Manages the webview panel for the JSONata playground
+ * Owns the three panels of the JSONata playground: the JSON input editor, the
+ * expression editor, and the read-only result document they feed.
  */
 export class PlaygroundPanel {
-    private panel: vscode.WebviewPanel;
-    private webviewManager: PlaygroundWebviewManager;
-    private editorManager: PlaygroundEditorManager;
+    private readonly resultDocument = new PlaygroundResultDocument();
+    private readonly session: PlaygroundSession;
+    private readonly editorManager: PlaygroundEditorManager;
+    private readonly disposeEmitter = new vscode.EventEmitter<void>();
     private disposables: vscode.Disposable[] = [];
     private jsonInputEditor: vscode.TextEditor | undefined;
     private jsonataExpressionEditor: vscode.TextEditor | undefined;
+    private disposed = false;
 
     constructor(
         private context: vscode.ExtensionContext,
         private onShareCallback?: () => Promise<void>,
         private onImportCallback?: () => Promise<void>
     ) {
-        // Initialize editor manager first
         this.editorManager = new PlaygroundEditorManager();
-
-        // Create the webview panel for results - it will be positioned after editors are created
-        this.panel = vscode.window.createWebviewPanel(
-            'jsonataPlaygroundResults',
-            'JSONata Results',
-            { viewColumn: vscode.ViewColumn.Two, preserveFocus: true },
-            {
-                enableScripts: true,
-                retainContextWhenHidden: true,
-                localResourceRoots: [
-                    vscode.Uri.joinPath(this.context.extensionUri, 'media'),
-                    vscode.Uri.joinPath(this.context.extensionUri, 'dist')
-                ]
-            }
+        this.session = new PlaygroundSession(this.resultDocument, this.context);
+        this.session.setOwnSourceReaders(
+            () => this.editorManager.jsonInputContent,
+            () => this.editorManager.jsonataExpressionContent
         );
 
-        // Set the webview icon
-        this.panel.iconPath = {
-            light: vscode.Uri.joinPath(this.context.extensionUri, 'media', 'playground-light.svg'),
-            dark: vscode.Uri.joinPath(this.context.extensionUri, 'media', 'playground-dark.svg')
-        };
-
-        // Initialize webview manager for results display
-        this.webviewManager = new PlaygroundWebviewManager(this.panel.webview, this.context);
-
-        // Set up event handlers
         this.setupEventHandlers();
-
-        // Initialize the playground
         this.initializePlayground();
     }
 
     private async initializePlayground(): Promise<void> {
         try {
-            // Step 1: Create JSON input editor in Column 1 (left side)
+            // Establish the grid up front so each panel can be opened straight
+            // into its final group, rather than split into place afterwards
+            await this.applyLayout();
+
             this.jsonInputEditor = await this.editorManager.createJsonInputEditor(DEFAULT_JSON_INPUT);
-
-            // Step 2: Create JSONata expression editor in Column 2 (top right)
             this.jsonataExpressionEditor = await this.editorManager.createJsonataExpressionEditor(DEFAULT_JSONATA_EXPRESSION);
+            await this.resultDocument.show(vscode.ViewColumn.Three);
+            this.watchForResultTabClose();
 
-            // Step 3: Set up change listeners for real-time updates
             this.editorManager.setOnJsonInputChange((content) => {
-                this.webviewManager.updateJsonInput(content);
+                this.session.updateJsonInput(content);
             });
 
             this.editorManager.setOnJsonataExpressionChange((content) => {
-                this.webviewManager.updateJsonataExpression(content);
+                this.session.updateJsonataExpression(content);
             });
 
-            // Step 4: Load the webview content for results (bottom right)
-            this.webviewManager.updateWebviewContent();
-
-            // Step 4.5: Set up share/import callbacks
             this.setupShareImportCallbacks();
 
-            // Step 5: Set up the layout properly after a short delay
-            setTimeout(async () => {
-                await this.ensureProperLayout();
-            }, 300);
+            // The session evaluated the defaults when it was constructed; this
+            // picks up whatever else the user already had open
+            this.session.updateAvailableEditors();
 
-            // Step 6: Initialize available editors list. The manager already
-            // evaluated the defaults when it was constructed, and the webview
-            // pulls the current state as soon as it loads.
-            this.webviewManager.updateAvailableEditors();
-
+            // Leave the caret in the expression editor, which is where the
+            // playground is actually driven from
+            if (this.jsonataExpressionEditor) {
+                await vscode.window.showTextDocument(this.jsonataExpressionEditor.document, {
+                    viewColumn: vscode.ViewColumn.Two,
+                    preserveFocus: false
+                });
+            }
         } catch (error) {
             console.error('Failed to initialize playground:', error);
             vscode.window.showErrorMessage('Failed to initialize JSONata playground');
@@ -97,35 +78,82 @@ export class PlaygroundPanel {
     }
 
     /**
-     * Sets up the share and import callbacks for the webview manager
+     * Lays the editor area out as input on the left, with the expression above
+     * the result on the right. Setting the grid explicitly keeps the columns
+     * stable, so ViewColumn.Three is reliably the bottom-right panel.
+     */
+    private async applyLayout(): Promise<void> {
+        await vscode.commands.executeCommand('vscode.setEditorLayout', {
+            orientation: 0, // Top-level groups sit side by side
+            groups: [
+                { size: 0.4 },
+                { groups: [{ size: 0.5 }, { size: 0.5 }], size: 0.6 }
+            ]
+        });
+    }
+
+    /**
+     * Sets up the share and import callbacks for the session
      */
     private setupShareImportCallbacks(): void {
         if (this.onShareCallback) {
-            this.webviewManager.setOnShareCallback(this.onShareCallback);
+            this.session.setOnShareCallback(this.onShareCallback);
         }
         if (this.onImportCallback) {
-            this.webviewManager.setOnImportCallback(this.onImportCallback);
+            this.session.setOnImportCallback(this.onImportCallback);
         }
     }
 
     private setupEventHandlers(): void {
-        // Handle panel disposal
-        this.panel.onDidDispose(() => {
-            this.dispose();
-        }, null, this.disposables);
+        // Re-evaluate when the reader comes back to the result panel, so a
+        // change made while it was hidden is never left showing stale output
+        this.disposables.push(
+            vscode.window.onDidChangeActiveTextEditor((editor) => {
+                if (editor?.document.uri.scheme === RESULT_SCHEME) {
+                    this.session.refresh();
+                }
+            })
+        );
+    }
 
-        // Handle view state changes
-        this.panel.onDidChangeViewState((e) => {
-            if (e.webviewPanel.visible) {
-                this.webviewManager.onPanelVisible();
-            }
-        }, null, this.disposables);
+    /**
+     * Closing the result panel closes the playground, which is the role the
+     * webview panel's own disposal used to play. Armed only once the tab is
+     * open, since before that "no result tab" is the normal state.
+     */
+    private watchForResultTabClose(): void {
+        this.disposables.push(
+            vscode.window.tabGroups.onDidChangeTabs(() => {
+                if (!this.disposed && !this.isResultTabOpen()) {
+                    this.dispose();
+                }
+            })
+        );
+    }
 
-        // Handle webview messages
-        this.panel.webview.onDidReceiveMessage(
-            (message) => this.webviewManager.handleMessage(message),
-            null,
-            this.disposables
+    private closeResultTab(): void {
+        const resultUri = this.resultDocument.uri.toString();
+        const tabs = vscode.window.tabGroups.all.flatMap(group =>
+            group.tabs.filter(tab =>
+                tab.input instanceof vscode.TabInputText &&
+                tab.input.uri.toString() === resultUri
+            )
+        );
+
+        if (tabs.length > 0) {
+            Promise.resolve(vscode.window.tabGroups.close(tabs)).then(undefined, error => {
+                console.warn('Error closing playground result tab:', error);
+            });
+        }
+    }
+
+    private isResultTabOpen(): boolean {
+        const resultUri = this.resultDocument.uri.toString();
+        return vscode.window.tabGroups.all.some(group =>
+            group.tabs.some(tab =>
+                tab.input instanceof vscode.TabInputText &&
+                tab.input.uri.toString() === resultUri
+            )
         );
     }
 
@@ -133,37 +161,60 @@ export class PlaygroundPanel {
      * The current evaluation state, used when exporting a session
      */
     public get currentState(): PlaygroundState {
-        return this.webviewManager.currentState;
+        return this.session.currentState;
     }
 
     /**
-     * Reveals the panel in the editor
+     * Brings the playground's panels back into view
      */
     public reveal(): void {
-        this.panel.reveal();
+        this.resultDocument.show(vscode.ViewColumn.Three).then(undefined, error => {
+            console.warn('Error revealing playground result panel:', error);
+        });
+    }
+
+    /** Re-reads every source and evaluates again */
+    public refresh(): void {
+        this.session.refresh();
+    }
+
+    /** Asks which open editors should feed the input and the expression */
+    public async pickSources(): Promise<void> {
+        await this.session.pickSources();
+    }
+
+    /** Copies the current result to the clipboard */
+    public async copyResult(): Promise<void> {
+        await this.session.copyResultToClipboard();
     }
 
     /**
-     * Disposes the panel and cleans up resources
+     * Disposes the playground and cleans up resources
      */
     public dispose(): void {
-        this.panel.dispose();
-        this.webviewManager.dispose();
+        if (this.disposed) {
+            return;
+        }
+        this.disposed = true;
+
+        this.session.dispose();
         this.editorManager.dispose();
+        this.closeResultTab();
+        this.resultDocument.dispose();
 
         while (this.disposables.length) {
-            const disposable = this.disposables.pop();
-            if (disposable) {
-                disposable.dispose();
-            }
+            this.disposables.pop()?.dispose();
         }
+
+        this.disposeEmitter.fire();
+        this.disposeEmitter.dispose();
     }
 
     /**
-     * Returns a disposable that fires when the panel is disposed
+     * Returns a disposable that fires when the playground is disposed
      */
     public onDidDispose(listener: () => void): vscode.Disposable {
-        return this.panel.onDidDispose(listener);
+        return this.disposeEmitter.event(listener);
     }
 
     /**
@@ -174,7 +225,7 @@ export class PlaygroundPanel {
             await this.editorManager.updateJsonataExpressionContent(expression);
         } else {
             // Store for when editor is ready
-            this.webviewManager.setJsonataExpression(expression);
+            this.session.setJsonataExpression(expression);
         }
     }
 
@@ -186,7 +237,7 @@ export class PlaygroundPanel {
             await this.editorManager.updateJsonInputContent(jsonData);
         } else {
             // Store for when editor is ready
-            this.webviewManager.setJsonInput(jsonData);
+            this.session.setJsonInput(jsonData);
         }
     }
 
@@ -219,45 +270,4 @@ export class PlaygroundPanel {
             }
         }
     }
-
-    /**
-     * Ensures the proper 3-panel layout: JSON input (left), JSONata expression (top right), Results (bottom right)
-     */
-    private async ensureProperLayout(): Promise<void> {
-        try {
-            // Wait for editors to be fully initialized
-            await new Promise(resolve => setTimeout(resolve, 100));
-
-            // Step 1: Focus JSON input editor in Column 1 (left)
-            if (this.jsonInputEditor) {
-                await vscode.window.showTextDocument(this.jsonInputEditor.document, {
-                    viewColumn: vscode.ViewColumn.One,
-                    preserveFocus: true
-                });
-            }
-
-            // Step 2: Focus JSONata expression editor in Column 2 (top right)
-            if (this.jsonataExpressionEditor) {
-                await vscode.window.showTextDocument(this.jsonataExpressionEditor.document, {
-                    viewColumn: vscode.ViewColumn.Two,
-                    preserveFocus: false
-                });
-            }
-
-            // Wait for layout to settle
-            await new Promise(resolve => setTimeout(resolve, 150));
-
-            // Step 3: Split down to create bottom right panel for results
-            await vscode.commands.executeCommand('workbench.action.splitEditorDown');
-
-            // Step 4: Show results panel in the newly created bottom area
-            this.panel.reveal(vscode.ViewColumn.Active, false);
-
-        } catch (error) {
-            console.warn('Layout setup encountered issue, using fallback:', error);
-            // Fallback: just show results panel beside other panels
-            this.panel.reveal(vscode.ViewColumn.Beside, false);
-        }
-    }
-
 }

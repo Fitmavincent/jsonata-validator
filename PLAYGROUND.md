@@ -4,11 +4,13 @@ The JSONata Playground is an interactive environment for testing and experimenti
 
 ## Features
 
-- **Native VS Code editors**: JSON Input and JSONata Expression panels use real VS Code editors
+- **Native VS Code editors**: all three panels are real VS Code editors
 - **AI tool integration**: Full access to Copilot, Cline, and other AI extensions in input panels
 - **Real-time evaluation**: Expressions are evaluated as you type with debouncing
 - **Error handling**: Both compilation and runtime errors are displayed with detailed messages
 - **Syntax highlighting**: Full VS Code editor experience with IntelliSense
+- **Foldable results**: the Results panel is a read-only JSON editor, so objects and arrays collapse, sections select and copy cleanly, and the outline and Find work as they do anywhere else
+- **Tamper-proof output**: the Results panel cannot be edited, so what it shows is always what the expression produced
 - **Persistent state**: Content is maintained while the panel is open
 - **Three-panel layout**: JSON Input (Column 1), JSONata Expression (Column 2), Results (Column 3)
 
@@ -109,7 +111,8 @@ When you open the playground, VS Code will automatically arrange three panels fo
    }
    ```
 
-3. **Results Panel** (Column 3): See the output automatically
+3. **Results Panel** (Column 3, bottom right): See the output automatically, in a
+   read-only JSON editor you can fold, search and copy from
    ```json
    [
      {"name": "Laptop", "discounted": 899.1, "category": "Electronics"},
@@ -118,6 +121,12 @@ When you open the playground, VS Code will automatically arrange three panels fo
    ```
 
 ## Error Handling
+
+Errors are reported in two places at once: as a red squiggle on the offending
+part of the expression, and in the Results panel as a `$jsonataError` object
+carrying the code, message, position and a suggestion where one applies. Keeping
+the panel valid JSON means it holds its folding and colours even when the
+expression is broken, and a failure never reads as though it were output.
 
 The playground handles both types of JSONata errors:
 
@@ -138,6 +147,11 @@ The playground handles both types of JSONata errors:
 |---------|-------------|
 | `jsonata-validator.openPlayground` | Open the playground |
 | `jsonata-validator.openPlaygroundWithSelection` | Open playground with selected text as expression |
+| `jsonata-validator.copyPlaygroundResult` | Copy the current result to the clipboard |
+| `jsonata-validator.refreshPlaygroundResult` | Re-read every source and evaluate again |
+| `jsonata-validator.selectPlaygroundSources` | Choose which open editors feed the input and the expression |
+
+The last three are also buttons in the Results panel's title bar.
 
 ## Keyboard Shortcuts
 
@@ -158,9 +172,11 @@ The playground feature is built with a modular architecture:
 ```
 src/
 ├── playground/
-│   ├── PlaygroundProvider.ts     # Main controller
-│   ├── PlaygroundPanel.ts        # Panel management
-│   └── PlaygroundWebviewManager.ts # Webview content & messaging
+│   ├── PlaygroundProvider.ts          # Main controller
+│   ├── PlaygroundPanel.ts             # Panel and layout management
+│   ├── PlaygroundEditorManager.ts     # The two input editors
+│   ├── PlaygroundSession.ts           # Evaluation and error reporting
+│   └── PlaygroundResultDocument.ts    # Read-only result document
 ├── validation/
 │   ├── ValidationService.ts      # Validation logic
 │   └── expressionExtractor.ts    # Expression parsing
