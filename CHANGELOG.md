@@ -4,6 +4,43 @@ All notable changes to the "jsonata-validator" extension will be documented in t
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [1.5.1]
+
+### Fixed
+- **Evaluation errors are shown again in the playground results panel**
+  ([#6](https://github.com/Fitmavincent/jsonata-validator/issues/6)): the
+  result box is sized to fill the panel, so the error box that follows it was
+  pushed out of a clipped container and never seen. All the panel showed was
+  "Error in evaluation" in the status bar. The result box now stands aside when
+  an error is displayed, and the panel scrolls
+- **The error is highlighted where it happened.** JSONata reports a position
+  just *past* the offending token, and for a function call it has already
+  consumed the `(` that follows the name, so `$number(model.value)` underlined
+  `model` instead of `$number`. The reported span is now walked back to the
+  token the user wrote, and the results panel shows the offending line with
+  that token picked out
+- **Misleading "expected X, got Y" text removed.** For a runtime error JSONata
+  puts the failing *value* in `value` and the function name in `token`, so
+  `$number("7.")` was reported as `(expected '7.', got 'number')`. The panel now
+  labels the two correctly, and the message reads as JSONata wrote it:
+  `Unable to cast value to a number: "7."`
+
+### Changed
+- A failed evaluation is now marked as an error rather than a warning in the
+  template editor: it produces no result, the same as a template that will not
+  compile
+- Suggestions added for the common runtime failures — a value that cannot be
+  cast (`D3030`), calling something that is not a function (`T1006`), and an
+  argument of the wrong type (`T04xx`/`T20xx`)
+
+### Technical
+- `resolveErrorOffsets` and `offsetToPosition` in `src/utils/errorPosition.ts`
+  translate a JSONata error position into a source span, and are covered by
+  tests that run real expressions through JSONata to pin the position semantics
+- The results webview renders the error snippet from the state it already has,
+  instead of asking the extension for the expression in a round trip that only
+  ever completed once
+
 ## [1.5.0]
 
 ### Fixed
