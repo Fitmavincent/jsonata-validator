@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { Debouncer } from '../utils/debounce';
 import { compileExpression } from '../utils/expressionCache';
 import { offsetToPosition, resolveErrorOffsets } from '../utils/errorPosition';
-import { PlaygroundResultDocument } from './PlaygroundResultDocument';
+import { PlaygroundResultDocument, RESULT_SCHEME } from './PlaygroundResultDocument';
 import { ErrorDetails, formatErrorReport } from './errorReport';
 
 /** Content the playground starts with, and falls back to when a source closes */
@@ -26,11 +26,31 @@ export interface PlaygroundState {
     selectedTemplateEditor: string | null;
 }
 
-interface EditorInfo {
+export interface EditorInfo {
     id: string;
     fileName: string;
     language: string;
     isDirty: boolean;
+}
+
+/** Which of the playground's two inputs a source selection applies to */
+export type PlaygroundSourceKind = 'input' | 'template';
+
+/** Titles on the source pickers, and the labels the status bar reads them by */
+const SOURCE_TITLES: Record<PlaygroundSourceKind, string> = {
+    input: 'JSON input source',
+    template: 'JSONata expression source'
+};
+
+/**
+ * The language a tab is most likely in, for tabs whose document is not loaded
+ * yet and so cannot be asked. Replaced by the real language id the moment the
+ * document opens.
+ */
+function languageFromFileName(path: string): string {
+    const name = path.split('/').pop() ?? path;
+    const extension = name.includes('.') ? name.split('.').pop() : undefined;
+    return extension || 'text';
 }
 
 /**
@@ -86,10 +106,15 @@ export class PlaygroundSession {
     private onShareCallback?: () => Promise<void>;
     private onImportCallback?: () => Promise<void>;
 
-    // Reads the playground's own editors, used whenever a source selection
-    // falls back to them - either by choice or because an external tab closed
-    private ownJsonInput?: () => string | undefined;
-    private ownExpression?: () => string | undefined;
+    // The playground's own two editors, used whenever a source selection falls
+    // back to them - either by choice or because an external tab closed
+    private ownJsonInput?: () => vscode.TextDocument | undefined;
+    private ownExpression?: () => vscode.TextDocument | undefined;
+
+    private readonly sourcesChangeEmitter = new vscode.EventEmitter<void>();
+
+    /** Fires when a selection, or the list of editors to choose from, changes */
+    public readonly onDidChangeSources = this.sourcesChangeEmitter.event;
 
     constructor(
         private readonly resultDocument: PlaygroundResultDocument,
@@ -152,29 +177,32 @@ export class PlaygroundSession {
     }
 
     /**
-     * Asks which open editor should feed the JSON input and which should feed
-     * the expression.
+     * Asks which open editor should feed one of the two inputs, and resolves to
+     * false when the picker is dismissed.
      */
-    public async pickSources(): Promise<void> {
+    public async pickSource(kind: PlaygroundSourceKind): Promise<boolean> {
         this.updateAvailableEditors();
 
-        const jsonInput = await this.pickEditor(
-            'JSON input source',
-            this.state.selectedJsonInputEditor
-        );
-        if (jsonInput === undefined) {
-            return; // Cancelled
+        const choice = await this.pickEditor(SOURCE_TITLES[kind], this.selectionFor(kind));
+        if (choice === undefined) {
+            return false; // Cancelled
         }
-        this.selectJsonInputEditor(jsonInput);
 
-        const template = await this.pickEditor(
-            'JSONata expression source',
-            this.state.selectedTemplateEditor
-        );
-        if (template === undefined) {
-            return;
+        this.selectSource(kind, choice);
+        return true;
+    }
+
+    /** Walks both sources in turn, which is what one Select Sources action does */
+    public async pickSources(): Promise<void> {
+        if (await this.pickSource('input')) {
+            await this.pickSource('template');
         }
-        this.selectTemplateEditor(template);
+    }
+
+    private selectionFor(kind: PlaygroundSourceKind): string | null {
+        return kind === 'input'
+            ? this.state.selectedJsonInputEditor
+            : this.state.selectedTemplateEditor;
     }
 
     /**
@@ -185,20 +213,24 @@ export class PlaygroundSession {
         title: string,
         current: string | null
     ): Promise<string | null | undefined> {
-        const playgroundItem: vscode.QuickPickItem & { id: string | null } = {
-            id: null,
-            label: '$(edit) Playground editor',
-            description: 'Use the panel the playground opened',
-            picked: current === null
-        };
+        // `picked` only renders in a multi-select picker, so the current source
+        // is called out in the description instead of being left invisible
+        const describe = (id: string | null, description: string) =>
+            id === current ? `${description} • current` : description;
 
         const items: (vscode.QuickPickItem & { id: string | null })[] = [
-            playgroundItem,
+            {
+                id: null,
+                label: '$(edit) Playground editor',
+                description: describe(null, 'Use the panel the playground opened')
+            },
             ...this.state.availableEditors.map(editor => ({
                 id: editor.id,
                 label: `$(file) ${editor.fileName}`,
-                description: editor.isDirty ? `${editor.language} • unsaved` : editor.language,
-                picked: current === editor.id
+                description: describe(
+                    editor.id,
+                    editor.isDirty ? `${editor.language} • unsaved` : editor.language
+                )
             }))
         ];
 
@@ -211,11 +243,13 @@ export class PlaygroundSession {
     }
 
     /**
-     * Registers readers for the playground's own two editors
+     * Registers the playground's own two editors. Their text backs every source
+     * that is not pointed at a file, and their URIs are kept out of the picker,
+     * so "Playground editor" is the only way those two are named.
      */
     public setOwnSourceReaders(
-        jsonInput: () => string | undefined,
-        expression: () => string | undefined
+        jsonInput: () => vscode.TextDocument | undefined,
+        expression: () => vscode.TextDocument | undefined
     ): void {
         this.ownJsonInput = jsonInput;
         this.ownExpression = expression;
@@ -340,6 +374,7 @@ export class PlaygroundSession {
         this.disposables.forEach(disposable => disposable.dispose());
         this.disposables.length = 0;
         this.playgroundDiagnosticCollection.dispose();
+        this.sourcesChangeEmitter.dispose();
     }
 
     /**
@@ -356,27 +391,48 @@ export class PlaygroundSession {
         }
 
         this.state.availableEditors = editors;
+        this.sourcesChangeEmitter.fire();
     }
 
     /**
-     * Selects an editor as the JSON input source
+     * Points one of the two sources at an open editor, or back at the
+     * playground's own editor when given null.
      */
-    private selectJsonInputEditor(editorId: string | null): void {
-        this.state.selectedJsonInputEditor = editorId;
-        this.state.jsonInput = this.readJsonInputSource();
-        this.evaluateExpression();
-    }
-
-    /**
-     * Selects an editor as the template/expression source
-     */
-    private selectTemplateEditor(editorId: string | null): void {
-        // Clear diagnostics from the previous editor
+    public selectSource(kind: PlaygroundSourceKind, editorId: string | null): void {
+        // The squiggle belongs to the expression that was showing, so it goes
+        // whichever source moved: a new input can resolve a runtime error too
         this.clearTemplateDiagnostics();
 
-        this.state.selectedTemplateEditor = editorId;
-        this.state.jsonataExpression = this.readTemplateSource();
+        if (kind === 'input') {
+            this.state.selectedJsonInputEditor = editorId;
+            this.state.jsonInput = this.readJsonInputSource();
+        } else {
+            this.state.selectedTemplateEditor = editorId;
+            this.state.jsonataExpression = this.readTemplateSource();
+        }
+
+        this.sourcesChangeEmitter.fire();
         this.evaluateExpression();
+
+        if (editorId) {
+            this.openUnloadedSource(editorId);
+        }
+    }
+
+    /**
+     * Loads the document behind a tab that has not been opened yet, so a source
+     * pointed at one reads its real content instead of silently falling back to
+     * the playground's own editor. A no-op once the document is loaded.
+     */
+    private openUnloadedSource(editorId: string): void {
+        if (this.getEditorContent(editorId) !== null) {
+            return;
+        }
+
+        Promise.resolve(vscode.workspace.openTextDocument(vscode.Uri.parse(editorId))).then(
+            () => this.refresh(),
+            error => console.warn('Error opening a playground source document:', error)
+        );
     }
 
     /**
@@ -391,7 +447,7 @@ export class PlaygroundSession {
                 return content;
             }
         }
-        return this.ownJsonInput?.() ?? DEFAULT_JSON_INPUT;
+        return this.ownJsonInput?.()?.getText() ?? DEFAULT_JSON_INPUT;
     }
 
     /** The expression as it stands now, resolved the same way as the input */
@@ -403,7 +459,7 @@ export class PlaygroundSession {
                 return content;
             }
         }
-        return this.ownExpression?.() ?? DEFAULT_JSONATA_EXPRESSION;
+        return this.ownExpression?.()?.getText() ?? DEFAULT_JSONATA_EXPRESSION;
     }
 
     private async evaluateExpression(): Promise<void> {
@@ -768,27 +824,19 @@ export class PlaygroundSession {
                     continue;
                 }
 
+                // Every other open tab is fair game, but the playground's own
+                // output is not: feeding a result back in as its own input
+                // would have it re-evaluate itself for as long as it changed
+                if (tab.input.uri.scheme === RESULT_SCHEME) {
+                    continue;
+                }
+
                 const uri = tab.input.uri.toString();
                 if (openEditors.has(uri)) {
                     continue;
                 }
 
-                const textDoc = documentsByUri.get(uri);
-                if (!textDoc) {
-                    continue;
-                }
-
-                // For untitled documents, prefer the tab's own label
-                const fileName = textDoc.isUntitled
-                    ? (tab.label || `Untitled-${textDoc.languageId}`)
-                    : this.getDisplayName(textDoc);
-
-                openEditors.set(uri, {
-                    id: uri,
-                    fileName: fileName,
-                    language: textDoc.languageId,
-                    isDirty: textDoc.isDirty
-                });
+                openEditors.set(uri, this.describeTab(tab, tab.input.uri, documentsByUri.get(uri)));
             }
         }
 
@@ -796,6 +844,10 @@ export class PlaygroundSession {
         if (openEditors.size === 0) {
             for (const editor of vscode.window.visibleTextEditors) {
                 const document = editor.document;
+                if (document.uri.scheme === RESULT_SCHEME) {
+                    continue;
+                }
+
                 const uri = document.uri.toString();
 
                 openEditors.set(uri, {
@@ -814,15 +866,53 @@ export class PlaygroundSession {
     }
 
     /**
+     * Describes one open tab for the source list.
+     *
+     * A tab does not imply a loaded document: VS Code restores tabs lazily and
+     * only materialises the document when something asks for it. Dropping those
+     * tabs would leave files the user can plainly see open missing from the
+     * list, so the tab's own label and dirty flag stand in until it is opened,
+     * and the language is read off the file name in the meantime.
+     */
+    private describeTab(
+        tab: vscode.Tab,
+        uri: vscode.Uri,
+        document: vscode.TextDocument | undefined
+    ): EditorInfo {
+        if (!document) {
+            return {
+                id: uri.toString(),
+                fileName: tab.label || this.getDisplayPath(uri.fsPath),
+                language: languageFromFileName(uri.path),
+                isDirty: tab.isDirty
+            };
+        }
+
+        return {
+            id: uri.toString(),
+            // For untitled documents, prefer the tab's own label
+            fileName: document.isUntitled
+                ? (tab.label || `Untitled-${document.languageId}`)
+                : this.getDisplayName(document),
+            language: document.languageId,
+            isDirty: document.isDirty
+        };
+    }
+
+    /**
      * Workspace-relative path for a saved document, or its bare file name when
      * it lives outside the workspace
      */
     private getDisplayName(document: vscode.TextDocument): string {
-        const relativePath = vscode.workspace.asRelativePath(document.fileName);
-        if (relativePath !== document.fileName) {
+        return this.getDisplayPath(document.fileName);
+    }
+
+    private getDisplayPath(fileName: string): string {
+        const relativePath = vscode.workspace.asRelativePath(fileName);
+        if (relativePath !== fileName) {
             return relativePath;
         }
-        return document.fileName.split(/[/\\]/).pop() || relativePath;
+        return fileName.split(/[/\\]/).pop() || relativePath;
     }
 
     /**
@@ -905,6 +995,7 @@ export class PlaygroundSession {
             }
 
             if (selectionCleared) {
+                this.sourcesChangeEmitter.fire();
                 this.scheduleEvaluation();
             }
 
@@ -952,6 +1043,7 @@ export class PlaygroundSession {
 
         // If state changed, re-evaluate and republish
         if (stateChanged) {
+            this.sourcesChangeEmitter.fire();
             this.evaluateExpression();
         }
     }

@@ -1,11 +1,6 @@
 # JSONata Validator Extension
 
-A l### New: Editor Tab Selection
-- Select any open editor tab as the JSON input source
-- Select any open editor tab as the JSONata expression source
-- Changes in selected files automatically update the playground results
-- Only shows files that are actually open as tabs in VS Code
-- Perfect for testing expressions against multiple data setseight VS Code extension for validating JSONata templates and providing an interactive playground for testing expressions. This extension provides real-time validation of JSONata expressions using the official JSONata library.
+A lightweight VS Code extension for validating JSONata templates and providing an interactive playground for testing expressions. This extension provides real-time validation of JSONata expressions using the official JSONata library.
 
 ## Features
 
@@ -25,7 +20,7 @@ A l### New: Editor Tab Selection
 The extension includes an interactive playground for testing JSONata expressions:
 
 ### Features
-- **Three-panel layout**: JSON Input (left), JSONata Expression (top-right), Results (bottom-right)
+- **Three-panel layout**: JSON Input (left), Results (top-right), JSONata Expression (bottom-right)
 - **Real-time evaluation**: See results as you type with error handling
 - **Runtime error detection**: Catches both compilation and evaluation errors
 - **VS Code integration**: Full editor experience with syntax highlighting
@@ -39,11 +34,15 @@ The extension includes an interactive playground for testing JSONata expressions
 3. **Context Menu**: Right-click in `.jsonata` files
 4. **From Active Editor**: Use "Populate Playground from Active Editor" to automatically detect and load content
 
-### New: Editor Tab Selection
+### Editor Tab Selection
 - Select any open editor tab as the JSON input source
 - Select any open editor tab as the JSONata expression source
+- Both are dropdowns in a **JSONata Playground** panel that opens with the
+  playground, listing the editors open as tabs
+- `Default (Internal Editor)` points a source back at the playground's own panel
 - Changes in selected files automatically update the playground results
-- Perfect for testing expressions against multiple data sets
+- Perfect for testing one expression against several data sets, or several
+  expressions against one
 
 ### New: Session Share/Import 🔥
 - **Share sessions**: Export your current playground state (JSON input, JSONata expression, and results) as a shareable JSON format
@@ -115,6 +114,9 @@ Turn the warning off with `jsonataValidator.warnOnUnsupportedLineComments`.
 - **Open JSONata Playground**: Opens the interactive playground
 - **Open JSONata Playground with Selection**: Opens playground with selected text as expression
 - **Populate Playground from Active Editor**: Load content from current editor automatically
+- **Select JSONata Playground JSON Input Source**: Choose which open editor feeds the input
+- **Select JSONata Playground Expression Source**: Choose which open editor feeds the expression
+- **Select JSONata Playground Sources**: Choose both in turn
 - **Share Playground Session**: Share current playground state as JSON 🆕
 - **Import Playground Session**: Import a shared playground session 🆕
 - **Export Playground to Clipboard**: Quick export to clipboard 🆕
@@ -123,7 +125,8 @@ Turn the warning off with `jsonataValidator.warnOnUnsupportedLineComments`.
 Access these commands via:
 - Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`)
 - Right-click context menu (when editing .jsonata files)
-- Share/Import buttons in the playground results panel 🆕
+- The buttons in the Results panel's title bar
+- The two source entries in the status bar, while the playground is open
 
 ### Configuration
 

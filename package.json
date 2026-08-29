@@ -4,7 +4,7 @@
   "displayName": "jsonata-validator",
   "description": "A jsonata validator extention that can validate jsonata template",
   "icon": "media/icon.png",
-  "version": "1.6.0",
+  "version": "1.6.1",
   "pricing": "Free",
   "license": "MIT",
   "engines": {
@@ -109,12 +109,43 @@
         "icon": "$(list-selection)"
       },
       {
+        "command": "jsonata-validator.selectPlaygroundInputSource",
+        "title": "Select JSONata Playground JSON Input Source",
+        "category": "JSONata",
+        "icon": "$(json)"
+      },
+      {
+        "command": "jsonata-validator.selectPlaygroundTemplateSource",
+        "title": "Select JSONata Playground Expression Source",
+        "category": "JSONata",
+        "icon": "$(file-code)"
+      },
+      {
         "command": "jsonata-validator.copyPlaygroundResult",
         "title": "Copy JSONata Playground Result",
         "category": "JSONata",
         "icon": "$(copy)"
       }
     ],
+    "viewsContainers": {
+      "panel": [
+        {
+          "id": "jsonataPlayground",
+          "title": "JSONata Playground",
+          "icon": "$(json)"
+        }
+      ]
+    },
+    "views": {
+      "jsonataPlayground": [
+        {
+          "id": "jsonataPlaygroundSources",
+          "name": "Sources",
+          "type": "webview",
+          "when": "jsonataValidator.playgroundOpen"
+        }
+      ]
+    },
     "menus": {
       "editor/context": [
         {
@@ -180,6 +211,12 @@
           "command": "jsonata-validator.selectPlaygroundSources"
         },
         {
+          "command": "jsonata-validator.selectPlaygroundInputSource"
+        },
+        {
+          "command": "jsonata-validator.selectPlaygroundTemplateSource"
+        },
+        {
           "command": "jsonata-validator.copyPlaygroundResult"
         }
       ],
@@ -202,12 +239,12 @@
         {
           "command": "jsonata-validator.sharePlaygroundSession",
           "when": "resourceScheme == jsonata-result",
-          "group": "navigation@4"
+          "group": "1_playground@1"
         },
         {
           "command": "jsonata-validator.importPlaygroundSession",
           "when": "resourceScheme == jsonata-result",
-          "group": "navigation@5"
+          "group": "1_playground@2"
         }
       ]
     },

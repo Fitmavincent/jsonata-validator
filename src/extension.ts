@@ -2,6 +2,7 @@
 // Import the module and reference it with the alias vscode in your code below
 import * as vscode from 'vscode';
 import { PlaygroundProvider } from './playground/PlaygroundProvider';
+import { PlaygroundSourcesView } from './playground/PlaygroundSourcesView';
 import { ValidationService } from './validation/ValidationService';
 import { isJsonataFile } from './utils/jsonataUtils';
 import { getValidatorConfiguration, registerConfigurationWatcher } from './utils/configuration';
@@ -33,6 +34,10 @@ export function activate(context: vscode.ExtensionContext) {
 
 	// Initialize playground provider
 	const playgroundProvider = PlaygroundProvider.getInstance(context);
+
+	// The two source dropdowns, shown in their own panel while a playground is open
+	const playgroundSourcesView = new PlaygroundSourcesView(playgroundProvider);
+	playgroundSourcesView.register();
 
 	// Register commands
 	const validateDocumentCommand = vscode.commands.registerCommand('jsonata-validator.validateDocument', () => {
@@ -91,6 +96,16 @@ export function activate(context: vscode.ExtensionContext) {
 
 	const selectPlaygroundSourcesCommand = vscode.commands.registerCommand('jsonata-validator.selectPlaygroundSources', async () => {
 		await playgroundProvider.getCurrentPlayground()?.pickSources();
+	});
+
+	// One command per source, which is what the two status bar entries click
+	// through to, and what lets either be re-pointed without walking both
+	const selectPlaygroundInputSourceCommand = vscode.commands.registerCommand('jsonata-validator.selectPlaygroundInputSource', async () => {
+		await playgroundProvider.getCurrentPlayground()?.pickSource('input');
+	});
+
+	const selectPlaygroundTemplateSourceCommand = vscode.commands.registerCommand('jsonata-validator.selectPlaygroundTemplateSource', async () => {
+		await playgroundProvider.getCurrentPlayground()?.pickSource('template');
 	});
 
 	const copyPlaygroundResultCommand = vscode.commands.registerCommand('jsonata-validator.copyPlaygroundResult', async () => {
@@ -167,6 +182,8 @@ export function activate(context: vscode.ExtensionContext) {
 		populatePlaygroundFromActiveEditor,
 		refreshPlaygroundResultCommand,
 		selectPlaygroundSourcesCommand,
+		selectPlaygroundInputSourceCommand,
+		selectPlaygroundTemplateSourceCommand,
 		copyPlaygroundResultCommand,
 		sharePlaygroundSessionCommand,
 		importPlaygroundSessionCommand,
@@ -177,7 +194,8 @@ export function activate(context: vscode.ExtensionContext) {
 		onDidOpenTextDocument,
 		onDidCloseTextDocument,
 		configurationWatcher,
-		validationDebouncer
+		validationDebouncer,
+		playgroundSourcesView
 	);
 
 	// Validate already open documents

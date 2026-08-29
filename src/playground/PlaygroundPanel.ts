@@ -1,12 +1,22 @@
 import * as vscode from 'vscode';
 import {
     PlaygroundSession,
+    PlaygroundSourceKind,
     PlaygroundState,
     DEFAULT_JSON_INPUT,
     DEFAULT_JSONATA_EXPRESSION
 } from './PlaygroundSession';
 import { PlaygroundEditorManager } from './PlaygroundEditorManager';
 import { PlaygroundResultDocument, RESULT_SCHEME } from './PlaygroundResultDocument';
+import { SOURCES_CONTAINER_FOCUS } from './playgroundViews';
+
+/**
+ * The three panels, in the arrangement the playground opens with: the input on
+ * the left, and the result above the expression that produces it on the right.
+ */
+const INPUT_COLUMN = vscode.ViewColumn.One;
+const RESULT_COLUMN = vscode.ViewColumn.Two;
+const EXPRESSION_COLUMN = vscode.ViewColumn.Three;
 
 /**
  * Owns the three panels of the JSONata playground: the JSON input editor, the
@@ -30,8 +40,8 @@ export class PlaygroundPanel {
         this.editorManager = new PlaygroundEditorManager();
         this.session = new PlaygroundSession(this.resultDocument, this.context);
         this.session.setOwnSourceReaders(
-            () => this.editorManager.jsonInputContent,
-            () => this.editorManager.jsonataExpressionContent
+            () => this.editorManager.inputDocument,
+            () => this.editorManager.expressionDocument
         );
 
         this.setupEventHandlers();
@@ -44,9 +54,23 @@ export class PlaygroundPanel {
             // into its final group, rather than split into place afterwards
             await this.applyLayout();
 
-            this.jsonInputEditor = await this.editorManager.createJsonInputEditor(DEFAULT_JSON_INPUT);
-            this.jsonataExpressionEditor = await this.editorManager.createJsonataExpressionEditor(DEFAULT_JSONATA_EXPRESSION);
-            await this.resultDocument.show(vscode.ViewColumn.Three);
+            // Bring the source bar out so it is on screen with the panels
+            // rather than waiting to be found. It runs before the editors open,
+            // and the expression editor takes focus after it, so the caret
+            // still ends up where the playground is driven from.
+            await this.revealSourcesView();
+
+            // Opened in layout order, and the expression last, so the caret ends
+            // up in the editor the playground is actually driven from
+            this.jsonInputEditor = await this.editorManager.createJsonInputEditor(
+                DEFAULT_JSON_INPUT,
+                INPUT_COLUMN
+            );
+            await this.resultDocument.show(RESULT_COLUMN);
+            this.jsonataExpressionEditor = await this.editorManager.createJsonataExpressionEditor(
+                DEFAULT_JSONATA_EXPRESSION,
+                EXPRESSION_COLUMN
+            );
             this.watchForResultTabClose();
 
             this.editorManager.setOnJsonInputChange((content) => {
@@ -62,15 +86,6 @@ export class PlaygroundPanel {
             // The session evaluated the defaults when it was constructed; this
             // picks up whatever else the user already had open
             this.session.updateAvailableEditors();
-
-            // Leave the caret in the expression editor, which is where the
-            // playground is actually driven from
-            if (this.jsonataExpressionEditor) {
-                await vscode.window.showTextDocument(this.jsonataExpressionEditor.document, {
-                    viewColumn: vscode.ViewColumn.Two,
-                    preserveFocus: false
-                });
-            }
         } catch (error) {
             console.error('Failed to initialize playground:', error);
             vscode.window.showErrorMessage('Failed to initialize JSONata playground');
@@ -78,8 +93,8 @@ export class PlaygroundPanel {
     }
 
     /**
-     * Lays the editor area out as input on the left, with the expression above
-     * the result on the right. Setting the grid explicitly keeps the columns
+     * Lays the editor area out as input on the left, with the result above the
+     * expression on the right. Setting the grid explicitly keeps the columns
      * stable, so ViewColumn.Three is reliably the bottom-right panel.
      */
     private async applyLayout(): Promise<void> {
@@ -90,6 +105,18 @@ export class PlaygroundPanel {
                 { groups: [{ size: 0.5 }, { size: 0.5 }], size: 0.6 }
             ]
         });
+    }
+
+    /**
+     * Opens the panel the two source dropdowns live in. Never fatal: the
+     * playground is still usable if the panel refuses to open.
+     */
+    private async revealSourcesView(): Promise<void> {
+        try {
+            await vscode.commands.executeCommand(SOURCES_CONTAINER_FOCUS);
+        } catch (error) {
+            console.warn('Error revealing the playground sources view:', error);
+        }
     }
 
     /**
@@ -168,7 +195,7 @@ export class PlaygroundPanel {
      * Brings the playground's panels back into view
      */
     public reveal(): void {
-        this.resultDocument.show(vscode.ViewColumn.Three).then(undefined, error => {
+        this.resultDocument.show(RESULT_COLUMN).then(undefined, error => {
             console.warn('Error revealing playground result panel:', error);
         });
     }
@@ -181,6 +208,21 @@ export class PlaygroundPanel {
     /** Asks which open editors should feed the input and the expression */
     public async pickSources(): Promise<void> {
         await this.session.pickSources();
+    }
+
+    /** Asks which open editor should feed one of the two sources */
+    public async pickSource(kind: PlaygroundSourceKind): Promise<void> {
+        await this.session.pickSource(kind);
+    }
+
+    /** Points one source at an open editor, which is what the dropdowns do */
+    public selectSource(kind: PlaygroundSourceKind, editorId: string | null): void {
+        this.session.selectSource(kind, editorId);
+    }
+
+    /** Fires when either source, or the list of editors to choose from, changes */
+    public get onDidChangeSources(): vscode.Event<void> {
+        return this.session.onDidChangeSources;
     }
 
     /** Copies the current result to the clipboard */

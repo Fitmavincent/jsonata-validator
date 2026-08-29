@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { PlaygroundPanel } from './PlaygroundPanel';
 import { ExportService } from '../share/ExportService';
 import { ImportService } from '../share/ImportService';
+import { PLAYGROUND_OPEN_CONTEXT } from './playgroundViews';
 
 /**
  * Provider class that manages the JSONata playground functionality
@@ -9,6 +10,11 @@ import { ImportService } from '../share/ImportService';
 export class PlaygroundProvider {
     private static instance: PlaygroundProvider;
     private currentPanel: PlaygroundPanel | undefined;
+
+    private readonly playgroundChangeEmitter = new vscode.EventEmitter<void>();
+
+    /** Fires when a playground opens or closes, so views can re-bind to it */
+    public readonly onDidChangePlayground = this.playgroundChangeEmitter.event;
 
     private constructor(private context: vscode.ExtensionContext) {}
 
@@ -49,8 +55,27 @@ export class PlaygroundProvider {
             // Handle panel disposal
             this.currentPanel.onDidDispose(() => {
                 this.currentPanel = undefined;
+                this.announcePlayground();
             });
+
+            this.announcePlayground();
         }
+    }
+
+    /**
+     * Publishes whether a playground is open, both as the context key the
+     * sources view is gated on and as an event for it to re-bind on.
+     */
+    private announcePlayground(): void {
+        Promise.resolve(vscode.commands.executeCommand(
+            'setContext',
+            PLAYGROUND_OPEN_CONTEXT,
+            this.currentPanel !== undefined
+        )).then(undefined, error => {
+            console.warn('Error publishing playground state:', error);
+        });
+
+        this.playgroundChangeEmitter.fire();
     }
 
 
