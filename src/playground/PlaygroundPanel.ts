@@ -23,7 +23,6 @@ const EXPRESSION_COLUMN = vscode.ViewColumn.Three;
  * expression editor, and the read-only result document they feed.
  */
 export class PlaygroundPanel {
-    private readonly resultDocument = new PlaygroundResultDocument();
     private readonly session: PlaygroundSession;
     private readonly editorManager: PlaygroundEditorManager;
     private readonly disposeEmitter = new vscode.EventEmitter<void>();
@@ -34,6 +33,9 @@ export class PlaygroundPanel {
 
     constructor(
         private context: vscode.ExtensionContext,
+        // Outlives the panel, so the result tab still resolves once this
+        // playground is gone. Reset rather than disposed on the way out.
+        private readonly resultDocument: PlaygroundResultDocument,
         private onShareCallback?: () => Promise<void>,
         private onImportCallback?: () => Promise<void>
     ) {
@@ -242,7 +244,7 @@ export class PlaygroundPanel {
         this.session.dispose();
         this.editorManager.dispose();
         this.closeResultTab();
-        this.resultDocument.dispose();
+        this.resultDocument.reset();
 
         while (this.disposables.length) {
             this.disposables.pop()?.dispose();
