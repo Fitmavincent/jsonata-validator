@@ -13,18 +13,25 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
   JSON input and which fed the expression. Retiring the webview reduced that to
   one unlabelled icon among five in the results title bar - easy to miss, and
   showing nothing about what the sources currently were, which is most of what
-  a dropdown was doing. Both sources are now in the status bar while the
-  playground is open, each naming what it reads from, and each a click away
-  from being pointed somewhere else:
+  a dropdown was doing.
+
+  A **JSONata Playground** section now appears in the Explorer for as long as
+  the playground is open, with a row per source naming what it reads from:
 
   ```
-    {} sample-data.json      </> active-users-template.jsonata
+  JSONATA PLAYGROUND
+    {}  JSON input            sample-data.json
+    </> JSONata expression    Playground
   ```
 
-  They are backed by a command apiece, so either source can be re-pointed on
-  its own from the command palette; **Select Sources** still walks both in
-  turn. Share and Import moved off the title bar into its `...` menu, leaving
-  Copy, Refresh and Select Sources as the buttons on it
+  Clicking a row opens the picker for that source alone; the section's title
+  bar carries **Select Sources**, which walks both, and **Refresh**. The same
+  two sources are repeated in the status bar for when the sidebar is closed.
+
+  Each source has a command of its own, so either can be re-pointed from the
+  command palette without walking the pair. Share and Import moved off the
+  results title bar into its `...` menu, leaving Copy, Refresh and Select
+  Sources as the buttons on it
 - **The playground's own two editors are no longer offered as sources.** They
   were listed as `Untitled-1` and `Untitled-2` alongside the `Playground
   editor` entry that already reaches them, so the same editor appeared twice

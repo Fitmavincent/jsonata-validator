@@ -21,18 +21,21 @@ const EXPRESSION_COLUMN = vscode.ViewColumn.Three;
 const SOURCE_STATUS: Record<PlaygroundSourceKind, {
     id: string;
     icon: string;
+    short: string;
     subject: string;
     command: string;
 }> = {
     input: {
         id: 'jsonataValidator.playgroundInputSource',
         icon: '$(json)',
+        short: 'Input',
         subject: 'JSON input',
         command: 'jsonata-validator.selectPlaygroundInputSource'
     },
     template: {
         id: 'jsonataValidator.playgroundTemplateSource',
         icon: '$(file-code)',
+        short: 'Template',
         subject: 'JSONata expression',
         command: 'jsonata-validator.selectPlaygroundTemplateSource'
     }
@@ -75,6 +78,12 @@ export class PlaygroundPanel {
             // Establish the grid up front so each panel can be opened straight
             // into its final group, rather than split into place afterwards
             await this.applyLayout();
+
+            // Bring the Explorer out so the sources view is on screen with the
+            // panels rather than waiting to be found. It runs before the
+            // editors open, and the expression editor takes focus after it,
+            // so the caret still ends up where the playground is driven from.
+            await this.revealSourcesView();
 
             // Opened in layout order, and the expression last, so the caret ends
             // up in the editor the playground is actually driven from
@@ -124,6 +133,18 @@ export class PlaygroundPanel {
     }
 
     /**
+     * Shows the Explorer, which is where the two source rows live. Never fatal:
+     * the playground is still usable if the sidebar refuses to open.
+     */
+    private async revealSourcesView(): Promise<void> {
+        try {
+            await vscode.commands.executeCommand('workbench.view.explorer');
+        } catch (error) {
+            console.warn('Error revealing the playground sources view:', error);
+        }
+    }
+
+    /**
      * Sets up the share and import callbacks for the session
      */
     private setupShareImportCallbacks(): void {
@@ -166,7 +187,7 @@ export class PlaygroundPanel {
 
         for (const [kind, item] of this.sourceStatusItems) {
             const entry = SOURCE_STATUS[kind];
-            item.text = `${entry.icon} ${labels[kind]}`;
+            item.text = `${entry.icon} ${entry.short}: ${labels[kind]}`;
             item.tooltip = new vscode.MarkdownString(
                 `JSONata playground &mdash; **${entry.subject}** is read from \`${labels[kind]}\`.\n\n` +
                 'Click to read it from another open editor instead.'
@@ -260,6 +281,16 @@ export class PlaygroundPanel {
     /** Asks which open editor should feed one of the two sources */
     public async pickSource(kind: PlaygroundSourceKind): Promise<void> {
         await this.session.pickSource(kind);
+    }
+
+    /** What each source currently reads from, for the sources view to render */
+    public get sourceLabels(): Record<PlaygroundSourceKind, string> {
+        return this.session.sourceLabels;
+    }
+
+    /** Fires when either source, or the list of editors to choose from, changes */
+    public get onDidChangeSources(): vscode.Event<void> {
+        return this.session.onDidChangeSources;
     }
 
     /** Copies the current result to the clipboard */

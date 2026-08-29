@@ -2,6 +2,7 @@
 // Import the module and reference it with the alias vscode in your code below
 import * as vscode from 'vscode';
 import { PlaygroundProvider } from './playground/PlaygroundProvider';
+import { PlaygroundSourcesView } from './playground/PlaygroundSourcesView';
 import { ValidationService } from './validation/ValidationService';
 import { isJsonataFile } from './utils/jsonataUtils';
 import { getValidatorConfiguration, registerConfigurationWatcher } from './utils/configuration';
@@ -33,6 +34,9 @@ export function activate(context: vscode.ExtensionContext) {
 
 	// Initialize playground provider
 	const playgroundProvider = PlaygroundProvider.getInstance(context);
+
+	// The two source selections, shown in the Explorer while a playground is open
+	const playgroundSourcesView = new PlaygroundSourcesView(playgroundProvider);
 
 	// Register commands
 	const validateDocumentCommand = vscode.commands.registerCommand('jsonata-validator.validateDocument', () => {
@@ -189,7 +193,8 @@ export function activate(context: vscode.ExtensionContext) {
 		onDidOpenTextDocument,
 		onDidCloseTextDocument,
 		configurationWatcher,
-		validationDebouncer
+		validationDebouncer,
+		playgroundSourcesView
 	);
 
 	// Validate already open documents

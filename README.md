@@ -37,8 +37,10 @@ The extension includes an interactive playground for testing JSONata expressions
 ### Editor Tab Selection
 - Select any open editor tab as the JSON input source
 - Select any open editor tab as the JSONata expression source
-- Both are named in the status bar while the playground is open, so you can see
-  at a glance what each one is reading from; click either to point it elsewhere
+- A **JSONata Playground** section appears in the Explorer while the playground
+  is open, with a row per source naming what it currently reads from; click a
+  row to point it somewhere else
+- The same two are repeated in the status bar, for when the sidebar is closed
 - Changes in selected files automatically update the playground results
 - Perfect for testing one expression against several data sets, or several
   expressions against one

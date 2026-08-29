@@ -127,6 +127,15 @@
         "icon": "$(copy)"
       }
     ],
+    "views": {
+      "explorer": [
+        {
+          "id": "jsonataPlaygroundSources",
+          "name": "JSONata Playground",
+          "when": "jsonataValidator.playgroundOpen"
+        }
+      ]
+    },
     "menus": {
       "editor/context": [
         {
@@ -199,6 +208,18 @@
         },
         {
           "command": "jsonata-validator.copyPlaygroundResult"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "jsonata-validator.selectPlaygroundSources",
+          "when": "view == jsonataPlaygroundSources",
+          "group": "navigation@1"
+        },
+        {
+          "command": "jsonata-validator.refreshPlaygroundResult",
+          "when": "view == jsonataPlaygroundSources",
+          "group": "navigation@2"
         }
       ],
       "editor/title": [
