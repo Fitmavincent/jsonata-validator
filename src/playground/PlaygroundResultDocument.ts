@@ -38,6 +38,14 @@ const STYLE_COLORS: Record<ReportStyle, string> = {
  * Documents served by a TextDocumentContentProvider are read-only in VS Code,
  * so the output cannot be edited into something that never came out of the
  * expression, while still behaving like a real editor in every other way.
+ *
+ * It lives as long as the extension does rather than as long as a playground
+ * does. VS Code restores the result tab across a window reload or an extension
+ * host restart, and a tab whose scheme has no provider behind it opens as
+ * "Unable to resolve resource" - a dead pane where the read-only editor was.
+ * Registering once at activation means the scheme always resolves; a playground
+ * hands the document its output while it is open, and `reset` puts it back to
+ * an empty result when it closes.
  */
 export class PlaygroundResultDocument implements vscode.TextDocumentContentProvider {
     private readonly changeEmitter = new vscode.EventEmitter<vscode.Uri>();
@@ -95,6 +103,15 @@ export class PlaygroundResultDocument implements vscode.TextDocumentContentProvi
     /** Shows a failure as a source-framed report rather than as output */
     public setError(report: ErrorReport): void {
         this.publish(report.text, ERROR_LANGUAGE, report.spans);
+    }
+
+    /**
+     * Puts the panel back to an empty result, for when the playground that was
+     * filling it closes. The registration outlives the panel, so the next
+     * playground starts from `null` rather than from the last session's output.
+     */
+    public reset(): void {
+        this.publish(EMPTY_RESULT, RESULT_LANGUAGE, []);
     }
 
     private publish(content: string, language: string, spans: ReportSpan[]): void {

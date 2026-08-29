@@ -57,6 +57,20 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 - A test asserting the error report picked whichever untitled JSONata document
   it found first, which after earlier suites was not the playground's own, so
   it was passing or failing on test ordering rather than on the panel
+- **The results panel comes back as a read-only editor after a reload**
+  ([#3](https://github.com/Fitmavincent/jsonata-validator/issues/3)): the
+  content provider serving the panel was created with the playground and
+  disposed with it, but VS Code restores the results tab across a window reload
+  and an extension host restart. The tab outlived the only thing that could
+  serve it, so it came back as *Unable to resolve resource* - a dead pane where
+  the foldable, searchable, tamper-proof editor had been, and one no amount of
+  reopening the playground would revive.
+
+  The provider is now registered for as long as the extension is active, so the
+  panel always resolves. A results tab found at startup belonged to a session
+  that did not survive the reload, so it is closed rather than left looking
+  live while nothing evaluates into it - opening the playground brings a real
+  one back
 
 ### Changed
 - **The result and the expression swap places.** The playground now opens as

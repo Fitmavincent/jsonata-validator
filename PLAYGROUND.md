@@ -211,6 +211,9 @@ commands are what the status bar entries click through to.
 2. **Multi-line expressions**: The playground supports complex, multi-line JSONata expressions
 3. **Real-time feedback**: Errors appear immediately as you type
 4. **Panel persistence**: The playground stays open until explicitly closed
+5. **Reloading the window** ends the session: the editors come back but nothing
+   is evaluating into them any more, so the Results panel closes itself rather
+   than sitting there looking live. Open the playground again for a fresh one
 
 ## Architecture
 

@@ -170,4 +170,39 @@ suite('Playground Panel Test Suite', () => {
 			assert.ok(commands.includes(command), `${command} is not registered`);
 		}
 	});
+
+	test('the result scheme still resolves once the playground closes', async function () {
+		this.timeout(30000);
+
+		// Closing the result tab closes the playground with it
+		await vscode.window.tabGroups.close(resultTab()!);
+		await waitFor(() => resultTab() === undefined, 'the result tab never closed');
+
+		// VS Code restores the result tab across a window reload and an
+		// extension host restart, both of which outlive the playground that
+		// opened it, and it resolves from scratch rather than from anything
+		// this session cached - which is what a URI that has never been opened
+		// stands in for here. With the provider gone this throws, and the panel
+		// comes back as "Unable to resolve resource": a dead pane where the
+		// read-only editor was.
+		const restored = await vscode.workspace.openTextDocument(
+			vscode.Uri.parse(`${RESULT_SCHEME}:/JSONata Result (restored).json`)
+		);
+		assert.strictEqual(restored.languageId, 'json', 'the restored panel must still be a JSON editor');
+	});
+
+	test('a second playground starts from its own output, not the last one', async function () {
+		this.timeout(30000);
+
+		await vscode.commands.executeCommand('jsonata-validator.openPlayground');
+		await waitFor(() => resultTab() !== undefined, 'the playground never reopened');
+
+		const document = await vscode.workspace.openTextDocument(
+			(resultTab()!.input as vscode.TabInputText).uri
+		);
+		await waitFor(
+			() => document.getText() === DEFAULT_RESULT,
+			`the reopened panel never evaluated (last saw ${JSON.stringify(document.getText())})`
+		);
+	});
 });
