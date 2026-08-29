@@ -33,9 +33,27 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
   would rather have it there. Each source also has a command of its own, so
   either can be re-pointed from the palette without walking the pair, and
   Share and Import moved off the results title bar into its `...` menu
-- **The playground's own two editors are no longer offered as sources.** They
-  were listed as `Untitled-1` and `Untitled-2` alongside the `Playground
-  editor` entry that already reaches them, so the same editor appeared twice
+- **The dropdowns list every open tab again.** Two things had been keeping
+  tabs out of them:
+  - The playground's own two editors were filtered out, on the reasoning that
+    `Default (Internal Editor)` already reached them. They are open tabs, and
+    a list of open tabs that quietly omits some is not a list of open tabs
+  - A tab whose document had not been loaded was skipped entirely. VS Code
+    restores tabs lazily and only materialises the document when something
+    asks for it, so files sitting plainly open could be missing from the list.
+    Tabs are now described from the tab itself until their document loads, and
+    pointing a source at one opens it rather than silently falling back to the
+    playground's own editor
+- **The results panel is left out of the list**, since it is the playground's
+  own output rather than a source. Feeding a result back in as its own input
+  would have it re-evaluate itself for as long as it kept changing. It was
+  never offered before this release, because the results were a webview and
+  had no tab to offer
+- **A dropdown no longer goes stale once it has been used.** The list was left
+  alone whenever the select had focus, to avoid yanking an open list out from
+  under the reader - but picking an entry leaves the focus on it, so from the
+  first use onward that dropdown stopped seeing new tabs. It now redraws
+  whenever the tabs or the selection actually change
 - A test asserting the error report picked whichever untitled JSONata document
   it found first, which after earlier suites was not the playground's own, so
   it was passing or failing on test ordering rather than on the panel

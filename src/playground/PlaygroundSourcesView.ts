@@ -267,12 +267,21 @@ export class PlaygroundSourcesView implements vscode.WebviewViewProvider, vscode
         run('shareBtn', 'jsonata-validator.sharePlaygroundSession');
         run('importBtn', 'jsonata-validator.importPlaygroundSession');
 
+        function signature(editors, selected) {
+            return JSON.stringify([editors, selected]);
+        }
+
         function fill(select, editors, selected) {
-            // Rebuilding drops the open list, so a dropdown the user is
-            // currently looking through is left alone until they are done
-            if (document.activeElement === select) {
+            // Rebuilding a select closes a list the user has open, so it is
+            // done only when the options or the selection actually moved.
+            // Skipping it while the select merely has focus would leave it
+            // stale from the moment it was first used, since picking an entry
+            // leaves the focus on it.
+            const current = signature(editors, selected);
+            if (select.dataset.signature === current) {
                 return;
             }
+            select.dataset.signature = current;
 
             select.innerHTML = '';
             const fallback = document.createElement('option');

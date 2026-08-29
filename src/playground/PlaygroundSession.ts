@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { Debouncer } from '../utils/debounce';
 import { compileExpression } from '../utils/expressionCache';
 import { offsetToPosition, resolveErrorOffsets } from '../utils/errorPosition';
-import { PlaygroundResultDocument } from './PlaygroundResultDocument';
+import { PlaygroundResultDocument, RESULT_SCHEME } from './PlaygroundResultDocument';
 import { ErrorDetails, formatErrorReport } from './errorReport';
 
 /** Content the playground starts with, and falls back to when a source closes */
@@ -41,6 +41,17 @@ const SOURCE_TITLES: Record<PlaygroundSourceKind, string> = {
     input: 'JSON input source',
     template: 'JSONata expression source'
 };
+
+/**
+ * The language a tab is most likely in, for tabs whose document is not loaded
+ * yet and so cannot be asked. Replaced by the real language id the moment the
+ * document opens.
+ */
+function languageFromFileName(path: string): string {
+    const name = path.split('/').pop() ?? path;
+    const extension = name.includes('.') ? name.split('.').pop() : undefined;
+    return extension || 'text';
+}
 
 /**
  * Digs the offending position out of a JSON.parse message so the report can
@@ -402,6 +413,26 @@ export class PlaygroundSession {
 
         this.sourcesChangeEmitter.fire();
         this.evaluateExpression();
+
+        if (editorId) {
+            this.openUnloadedSource(editorId);
+        }
+    }
+
+    /**
+     * Loads the document behind a tab that has not been opened yet, so a source
+     * pointed at one reads its real content instead of silently falling back to
+     * the playground's own editor. A no-op once the document is loaded.
+     */
+    private openUnloadedSource(editorId: string): void {
+        if (this.getEditorContent(editorId) !== null) {
+            return;
+        }
+
+        Promise.resolve(vscode.workspace.openTextDocument(vscode.Uri.parse(editorId))).then(
+            () => this.refresh(),
+            error => console.warn('Error opening a playground source document:', error)
+        );
     }
 
     /**
@@ -786,14 +817,6 @@ export class PlaygroundSession {
         // Keyed by URI so a file open in several tab groups is listed once
         const openEditors = new Map<string, EditorInfo>();
 
-        // The playground's own editors are reachable as "Playground editor", so
-        // listing their untitled tabs as well would offer the same two twice
-        const ownUris = new Set(
-            [this.ownJsonInput?.(), this.ownExpression?.()]
-                .filter((document): document is vscode.TextDocument => document !== undefined)
-                .map(document => document.uri.toString())
-        );
-
         for (const tabGroup of vscode.window.tabGroups.all) {
             for (const tab of tabGroup.tabs) {
                 // Only include text document tabs
@@ -801,27 +824,19 @@ export class PlaygroundSession {
                     continue;
                 }
 
+                // Every other open tab is fair game, but the playground's own
+                // output is not: feeding a result back in as its own input
+                // would have it re-evaluate itself for as long as it changed
+                if (tab.input.uri.scheme === RESULT_SCHEME) {
+                    continue;
+                }
+
                 const uri = tab.input.uri.toString();
-                if (openEditors.has(uri) || ownUris.has(uri)) {
+                if (openEditors.has(uri)) {
                     continue;
                 }
 
-                const textDoc = documentsByUri.get(uri);
-                if (!textDoc) {
-                    continue;
-                }
-
-                // For untitled documents, prefer the tab's own label
-                const fileName = textDoc.isUntitled
-                    ? (tab.label || `Untitled-${textDoc.languageId}`)
-                    : this.getDisplayName(textDoc);
-
-                openEditors.set(uri, {
-                    id: uri,
-                    fileName: fileName,
-                    language: textDoc.languageId,
-                    isDirty: textDoc.isDirty
-                });
+                openEditors.set(uri, this.describeTab(tab, tab.input.uri, documentsByUri.get(uri)));
             }
         }
 
@@ -829,10 +844,11 @@ export class PlaygroundSession {
         if (openEditors.size === 0) {
             for (const editor of vscode.window.visibleTextEditors) {
                 const document = editor.document;
-                const uri = document.uri.toString();
-                if (ownUris.has(uri)) {
+                if (document.uri.scheme === RESULT_SCHEME) {
                     continue;
                 }
+
+                const uri = document.uri.toString();
 
                 openEditors.set(uri, {
                     id: uri,
@@ -850,15 +866,53 @@ export class PlaygroundSession {
     }
 
     /**
+     * Describes one open tab for the source list.
+     *
+     * A tab does not imply a loaded document: VS Code restores tabs lazily and
+     * only materialises the document when something asks for it. Dropping those
+     * tabs would leave files the user can plainly see open missing from the
+     * list, so the tab's own label and dirty flag stand in until it is opened,
+     * and the language is read off the file name in the meantime.
+     */
+    private describeTab(
+        tab: vscode.Tab,
+        uri: vscode.Uri,
+        document: vscode.TextDocument | undefined
+    ): EditorInfo {
+        if (!document) {
+            return {
+                id: uri.toString(),
+                fileName: tab.label || this.getDisplayPath(uri.fsPath),
+                language: languageFromFileName(uri.path),
+                isDirty: tab.isDirty
+            };
+        }
+
+        return {
+            id: uri.toString(),
+            // For untitled documents, prefer the tab's own label
+            fileName: document.isUntitled
+                ? (tab.label || `Untitled-${document.languageId}`)
+                : this.getDisplayName(document),
+            language: document.languageId,
+            isDirty: document.isDirty
+        };
+    }
+
+    /**
      * Workspace-relative path for a saved document, or its bare file name when
      * it lives outside the workspace
      */
     private getDisplayName(document: vscode.TextDocument): string {
-        const relativePath = vscode.workspace.asRelativePath(document.fileName);
-        if (relativePath !== document.fileName) {
+        return this.getDisplayPath(document.fileName);
+    }
+
+    private getDisplayPath(fileName: string): string {
+        const relativePath = vscode.workspace.asRelativePath(fileName);
+        if (relativePath !== fileName) {
             return relativePath;
         }
-        return document.fileName.split(/[/\\]/).pop() || relativePath;
+        return fileName.split(/[/\\]/).pop() || relativePath;
     }
 
     /**

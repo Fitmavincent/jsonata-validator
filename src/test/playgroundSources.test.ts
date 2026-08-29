@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { PlaygroundResultDocument } from '../playground/PlaygroundResultDocument';
+import { PlaygroundResultDocument, RESULT_SCHEME } from '../playground/PlaygroundResultDocument';
 import { PlaygroundSession } from '../playground/PlaygroundSession';
 
 /** An input that evaluates to something the defaults never produce */
@@ -88,16 +88,47 @@ suite('Playground Sources Test Suite', () => {
 		fs.rmSync(temporaryDirectory, { recursive: true, force: true });
 	});
 
-	test('offers the open editors, and leaves the playground own two out of them', () => {
+	test('offers every open tab, the playground own two included', () => {
 		session.updateAvailableEditors();
 		const offered = session.currentState.availableEditors.map(editor => editor.id);
 
+		// The list is the open tabs, so anything the user can see open is in it
 		assert.ok(offered.includes(fileId), 'an open file must be offered as a source');
+		assert.ok(offered.includes(ownInput.uri.toString()), 'the playground input tab must be offered');
+		assert.ok(offered.includes(ownExpression.uri.toString()), 'the playground expression tab must be offered');
+	});
 
-		// Those two are reachable as "Playground editor", so listing their
-		// untitled tabs as well would offer the same editor twice
-		assert.ok(!offered.includes(ownInput.uri.toString()), 'the playground input must not be listed');
-		assert.ok(!offered.includes(ownExpression.uri.toString()), 'the playground expression must not be listed');
+	test('leaves the playground own output out, so a result cannot feed itself', async () => {
+		const output = await vscode.workspace.openTextDocument(
+			vscode.Uri.parse(`${RESULT_SCHEME}:/Another Result.json`)
+		);
+		await vscode.window.showTextDocument(output, { preview: false });
+
+		session.updateAvailableEditors();
+		const offered = session.currentState.availableEditors;
+
+		assert.ok(
+			offered.every(editor => !editor.id.startsWith(`${RESULT_SCHEME}:`)),
+			`the result panel must not be offered as a source: ${JSON.stringify(offered.map(e => e.id))}`
+		);
+	});
+
+	test('describes each tab by name, language and whether it is unsaved', async () => {
+		session.updateAvailableEditors();
+
+		const offered = session.currentState.availableEditors;
+		const saved = offered.find(editor => editor.id === fileId);
+		assert.ok(saved, 'the open file must be offered');
+		assert.strictEqual(saved.fileName, 'other-input.json');
+		assert.strictEqual(saved.language, 'json');
+		assert.strictEqual(saved.isDirty, false);
+
+		// An untitled document is unsaved from the moment it exists, which is
+		// the marker the dropdown shows as a bullet
+		const untitled = offered.find(editor => editor.id === ownInput.uri.toString());
+		assert.ok(untitled, 'the playground input tab must be offered');
+		assert.strictEqual(untitled.language, 'json');
+		assert.strictEqual(untitled.isDirty, true);
 	});
 
 	test('reads from the playground until a source is pointed at a file', () => {
