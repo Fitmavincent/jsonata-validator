@@ -33,6 +33,18 @@ interface EditorInfo {
     isDirty: boolean;
 }
 
+/** Which of the playground's two inputs a source selection applies to */
+export type PlaygroundSourceKind = 'input' | 'template';
+
+/** Titles on the source pickers, and the labels the status bar reads them by */
+const SOURCE_TITLES: Record<PlaygroundSourceKind, string> = {
+    input: 'JSON input source',
+    template: 'JSONata expression source'
+};
+
+/** Stands in for a source that is read from the playground's own editor */
+const OWN_EDITOR_LABEL = 'Playground';
+
 /**
  * Digs the offending position out of a JSON.parse message so the report can
  * frame the input the same way it frames an expression. V8 has carried the
@@ -86,10 +98,15 @@ export class PlaygroundSession {
     private onShareCallback?: () => Promise<void>;
     private onImportCallback?: () => Promise<void>;
 
-    // Reads the playground's own editors, used whenever a source selection
-    // falls back to them - either by choice or because an external tab closed
-    private ownJsonInput?: () => string | undefined;
-    private ownExpression?: () => string | undefined;
+    // The playground's own two editors, used whenever a source selection falls
+    // back to them - either by choice or because an external tab closed
+    private ownJsonInput?: () => vscode.TextDocument | undefined;
+    private ownExpression?: () => vscode.TextDocument | undefined;
+
+    private readonly sourcesChangeEmitter = new vscode.EventEmitter<void>();
+
+    /** Fires when a selection, or the list of editors to choose from, changes */
+    public readonly onDidChangeSources = this.sourcesChangeEmitter.event;
 
     constructor(
         private readonly resultDocument: PlaygroundResultDocument,
@@ -152,29 +169,50 @@ export class PlaygroundSession {
     }
 
     /**
-     * Asks which open editor should feed the JSON input and which should feed
-     * the expression.
+     * Asks which open editor should feed one of the two inputs, and resolves to
+     * false when the picker is dismissed.
      */
-    public async pickSources(): Promise<void> {
+    public async pickSource(kind: PlaygroundSourceKind): Promise<boolean> {
         this.updateAvailableEditors();
 
-        const jsonInput = await this.pickEditor(
-            'JSON input source',
-            this.state.selectedJsonInputEditor
-        );
-        if (jsonInput === undefined) {
-            return; // Cancelled
+        const choice = await this.pickEditor(SOURCE_TITLES[kind], this.selectionFor(kind));
+        if (choice === undefined) {
+            return false; // Cancelled
         }
-        this.selectJsonInputEditor(jsonInput);
 
-        const template = await this.pickEditor(
-            'JSONata expression source',
-            this.state.selectedTemplateEditor
-        );
-        if (template === undefined) {
-            return;
+        this.selectSource(kind, choice);
+        return true;
+    }
+
+    /** Walks both sources in turn, which is what one Select Sources action does */
+    public async pickSources(): Promise<void> {
+        if (await this.pickSource('input')) {
+            await this.pickSource('template');
         }
-        this.selectTemplateEditor(template);
+    }
+
+    /**
+     * What each source currently reads from, as the status bar names it: the
+     * chosen file, or the playground's own editor when nothing is chosen.
+     */
+    public get sourceLabels(): Record<PlaygroundSourceKind, string> {
+        return {
+            input: this.labelFor(this.selectionFor('input')),
+            template: this.labelFor(this.selectionFor('template'))
+        };
+    }
+
+    private selectionFor(kind: PlaygroundSourceKind): string | null {
+        return kind === 'input'
+            ? this.state.selectedJsonInputEditor
+            : this.state.selectedTemplateEditor;
+    }
+
+    private labelFor(editorId: string | null): string {
+        const selected = editorId
+            ? this.state.availableEditors.find(editor => editor.id === editorId)
+            : undefined;
+        return selected ? selected.fileName : OWN_EDITOR_LABEL;
     }
 
     /**
@@ -185,20 +223,24 @@ export class PlaygroundSession {
         title: string,
         current: string | null
     ): Promise<string | null | undefined> {
-        const playgroundItem: vscode.QuickPickItem & { id: string | null } = {
-            id: null,
-            label: '$(edit) Playground editor',
-            description: 'Use the panel the playground opened',
-            picked: current === null
-        };
+        // `picked` only renders in a multi-select picker, so the current source
+        // is called out in the description instead of being left invisible
+        const describe = (id: string | null, description: string) =>
+            id === current ? `${description} • current` : description;
 
         const items: (vscode.QuickPickItem & { id: string | null })[] = [
-            playgroundItem,
+            {
+                id: null,
+                label: '$(edit) Playground editor',
+                description: describe(null, 'Use the panel the playground opened')
+            },
             ...this.state.availableEditors.map(editor => ({
                 id: editor.id,
                 label: `$(file) ${editor.fileName}`,
-                description: editor.isDirty ? `${editor.language} • unsaved` : editor.language,
-                picked: current === editor.id
+                description: describe(
+                    editor.id,
+                    editor.isDirty ? `${editor.language} • unsaved` : editor.language
+                )
             }))
         ];
 
@@ -211,11 +253,13 @@ export class PlaygroundSession {
     }
 
     /**
-     * Registers readers for the playground's own two editors
+     * Registers the playground's own two editors. Their text backs every source
+     * that is not pointed at a file, and their URIs are kept out of the picker,
+     * so "Playground editor" is the only way those two are named.
      */
     public setOwnSourceReaders(
-        jsonInput: () => string | undefined,
-        expression: () => string | undefined
+        jsonInput: () => vscode.TextDocument | undefined,
+        expression: () => vscode.TextDocument | undefined
     ): void {
         this.ownJsonInput = jsonInput;
         this.ownExpression = expression;
@@ -340,6 +384,7 @@ export class PlaygroundSession {
         this.disposables.forEach(disposable => disposable.dispose());
         this.disposables.length = 0;
         this.playgroundDiagnosticCollection.dispose();
+        this.sourcesChangeEmitter.dispose();
     }
 
     /**
@@ -356,26 +401,27 @@ export class PlaygroundSession {
         }
 
         this.state.availableEditors = editors;
+        this.sourcesChangeEmitter.fire();
     }
 
     /**
-     * Selects an editor as the JSON input source
+     * Points one of the two sources at an open editor, or back at the
+     * playground's own editor when given null.
      */
-    private selectJsonInputEditor(editorId: string | null): void {
-        this.state.selectedJsonInputEditor = editorId;
-        this.state.jsonInput = this.readJsonInputSource();
-        this.evaluateExpression();
-    }
-
-    /**
-     * Selects an editor as the template/expression source
-     */
-    private selectTemplateEditor(editorId: string | null): void {
-        // Clear diagnostics from the previous editor
+    public selectSource(kind: PlaygroundSourceKind, editorId: string | null): void {
+        // The squiggle belongs to the expression that was showing, so it goes
+        // whichever source moved: a new input can resolve a runtime error too
         this.clearTemplateDiagnostics();
 
-        this.state.selectedTemplateEditor = editorId;
-        this.state.jsonataExpression = this.readTemplateSource();
+        if (kind === 'input') {
+            this.state.selectedJsonInputEditor = editorId;
+            this.state.jsonInput = this.readJsonInputSource();
+        } else {
+            this.state.selectedTemplateEditor = editorId;
+            this.state.jsonataExpression = this.readTemplateSource();
+        }
+
+        this.sourcesChangeEmitter.fire();
         this.evaluateExpression();
     }
 
@@ -391,7 +437,7 @@ export class PlaygroundSession {
                 return content;
             }
         }
-        return this.ownJsonInput?.() ?? DEFAULT_JSON_INPUT;
+        return this.ownJsonInput?.()?.getText() ?? DEFAULT_JSON_INPUT;
     }
 
     /** The expression as it stands now, resolved the same way as the input */
@@ -403,7 +449,7 @@ export class PlaygroundSession {
                 return content;
             }
         }
-        return this.ownExpression?.() ?? DEFAULT_JSONATA_EXPRESSION;
+        return this.ownExpression?.()?.getText() ?? DEFAULT_JSONATA_EXPRESSION;
     }
 
     private async evaluateExpression(): Promise<void> {
@@ -761,6 +807,14 @@ export class PlaygroundSession {
         // Keyed by URI so a file open in several tab groups is listed once
         const openEditors = new Map<string, EditorInfo>();
 
+        // The playground's own editors are reachable as "Playground editor", so
+        // listing their untitled tabs as well would offer the same two twice
+        const ownUris = new Set(
+            [this.ownJsonInput?.(), this.ownExpression?.()]
+                .filter((document): document is vscode.TextDocument => document !== undefined)
+                .map(document => document.uri.toString())
+        );
+
         for (const tabGroup of vscode.window.tabGroups.all) {
             for (const tab of tabGroup.tabs) {
                 // Only include text document tabs
@@ -769,7 +823,7 @@ export class PlaygroundSession {
                 }
 
                 const uri = tab.input.uri.toString();
-                if (openEditors.has(uri)) {
+                if (openEditors.has(uri) || ownUris.has(uri)) {
                     continue;
                 }
 
@@ -797,6 +851,9 @@ export class PlaygroundSession {
             for (const editor of vscode.window.visibleTextEditors) {
                 const document = editor.document;
                 const uri = document.uri.toString();
+                if (ownUris.has(uri)) {
+                    continue;
+                }
 
                 openEditors.set(uri, {
                     id: uri,
@@ -905,6 +962,7 @@ export class PlaygroundSession {
             }
 
             if (selectionCleared) {
+                this.sourcesChangeEmitter.fire();
                 this.scheduleEvaluation();
             }
 
@@ -952,6 +1010,7 @@ export class PlaygroundSession {
 
         // If state changed, re-evaluate and republish
         if (stateChanged) {
+            this.sourcesChangeEmitter.fire();
             this.evaluateExpression();
         }
     }

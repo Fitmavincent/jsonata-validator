@@ -93,6 +93,16 @@ export function activate(context: vscode.ExtensionContext) {
 		await playgroundProvider.getCurrentPlayground()?.pickSources();
 	});
 
+	// One command per source, which is what the two status bar entries click
+	// through to, and what lets either be re-pointed without walking both
+	const selectPlaygroundInputSourceCommand = vscode.commands.registerCommand('jsonata-validator.selectPlaygroundInputSource', async () => {
+		await playgroundProvider.getCurrentPlayground()?.pickSource('input');
+	});
+
+	const selectPlaygroundTemplateSourceCommand = vscode.commands.registerCommand('jsonata-validator.selectPlaygroundTemplateSource', async () => {
+		await playgroundProvider.getCurrentPlayground()?.pickSource('template');
+	});
+
 	const copyPlaygroundResultCommand = vscode.commands.registerCommand('jsonata-validator.copyPlaygroundResult', async () => {
 		await playgroundProvider.getCurrentPlayground()?.copyResult();
 	});
@@ -167,6 +177,8 @@ export function activate(context: vscode.ExtensionContext) {
 		populatePlaygroundFromActiveEditor,
 		refreshPlaygroundResultCommand,
 		selectPlaygroundSourcesCommand,
+		selectPlaygroundInputSourceCommand,
+		selectPlaygroundTemplateSourceCommand,
 		copyPlaygroundResultCommand,
 		sharePlaygroundSessionCommand,
 		importPlaygroundSessionCommand,

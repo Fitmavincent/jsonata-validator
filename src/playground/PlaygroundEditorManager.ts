@@ -31,33 +31,42 @@ export class PlaygroundEditorManager {
         this.disposables.push(changeDisposable);
     }
 
-    public async createJsonInputEditor(initialContent: string): Promise<vscode.TextEditor> {
+    /**
+     * Opens the playground's own JSON input editor. The column is the caller's
+     * to choose, so the whole layout is decided in one place.
+     */
+    public async createJsonInputEditor(
+        initialContent: string,
+        viewColumn: vscode.ViewColumn
+    ): Promise<vscode.TextEditor> {
         // Create a new untitled JSON document
         this.jsonInputDocument = await vscode.workspace.openTextDocument({
             content: initialContent,
             language: 'json'
         });
 
-        // Open the document in the editor (Column 1 - left side)
         const editor = await vscode.window.showTextDocument(this.jsonInputDocument, {
-            viewColumn: vscode.ViewColumn.One,
-            preserveFocus: false,
+            viewColumn,
+            preserveFocus: true,
             preview: false // Ensure it opens as a proper tab
         });
 
         return editor;
     }
 
-    public async createJsonataExpressionEditor(initialContent: string): Promise<vscode.TextEditor> {
+    /** Opens the playground's own expression editor, in the given column */
+    public async createJsonataExpressionEditor(
+        initialContent: string,
+        viewColumn: vscode.ViewColumn
+    ): Promise<vscode.TextEditor> {
         // Create a new untitled JSONata document
         this.jsonataExpressionDocument = await vscode.workspace.openTextDocument({
             content: initialContent,
             language: 'jsonata'
         });
 
-        // Open the document in the editor (Column 2 - top right)
         const editor = await vscode.window.showTextDocument(this.jsonataExpressionDocument, {
-            viewColumn: vscode.ViewColumn.Two,
+            viewColumn,
             preserveFocus: false,
             preview: false // Ensure it opens as a proper tab
         });
@@ -65,14 +74,14 @@ export class PlaygroundEditorManager {
         return editor;
     }
 
-    /** Current text of the playground's own JSON editor, if it is still open */
-    public get jsonInputContent(): string | undefined {
-        return this.jsonInputDocument?.getText();
+    /** The playground's own JSON editor, while it is still open */
+    public get inputDocument(): vscode.TextDocument | undefined {
+        return this.jsonInputDocument;
     }
 
-    /** Current text of the playground's own expression editor, if it is still open */
-    public get jsonataExpressionContent(): string | undefined {
-        return this.jsonataExpressionDocument?.getText();
+    /** The playground's own expression editor, while it is still open */
+    public get expressionDocument(): vscode.TextDocument | undefined {
+        return this.jsonataExpressionDocument;
     }
 
     public setOnJsonInputChange(callback: (content: string) => void): void {

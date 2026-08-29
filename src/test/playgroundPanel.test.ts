@@ -5,6 +5,11 @@ import { RESULT_SCHEME } from '../playground/PlaygroundResultDocument';
 /** Evaluating DEFAULT_JSON_INPUT with DEFAULT_JSONATA_EXPRESSION */
 const DEFAULT_RESULT = '[\n  7,\n  13\n]';
 
+/** The arrangement the playground opens with, as PlaygroundPanel lays it out */
+const INPUT_COLUMN = vscode.ViewColumn.One;
+const RESULT_COLUMN = vscode.ViewColumn.Two;
+const EXPRESSION_COLUMN = vscode.ViewColumn.Three;
+
 function openTabs(): vscode.Tab[] {
 	return vscode.window.tabGroups.all.flatMap(group => group.tabs);
 }
@@ -13,6 +18,36 @@ function resultTab(): vscode.Tab | undefined {
 	return openTabs().find(tab =>
 		tab.input instanceof vscode.TabInputText &&
 		tab.input.uri.scheme === RESULT_SCHEME
+	);
+}
+
+/**
+ * The playground's own expression editor. Earlier suites leave untitled JSONata
+ * documents behind in `workspace.textDocuments`, so the search runs over the
+ * visible editors, which only the playground's own panel is among.
+ */
+function expressionDocument(): vscode.TextDocument | undefined {
+	return vscode.window.visibleTextEditors.find(editor =>
+		editor.document.languageId === 'jsonata' && editor.document.isUntitled
+	)?.document;
+}
+
+/** Replaces a document's whole text without needing its editor to be focused */
+async function replaceText(document: vscode.TextDocument, text: string): Promise<void> {
+	const edit = new vscode.WorkspaceEdit();
+	edit.replace(document.uri, new vscode.Range(0, 0, document.lineCount, 0), text);
+	assert.ok(await vscode.workspace.applyEdit(edit), 'the edit was rejected');
+}
+
+/** The documents open in one editor group, in tab order */
+async function documentsIn(column: vscode.ViewColumn): Promise<vscode.TextDocument[]> {
+	const group = vscode.window.tabGroups.all.find(candidate => candidate.viewColumn === column);
+	assert.ok(group, `no editor group in column ${column}`);
+
+	return Promise.all(
+		group.tabs
+			.filter((tab): tab is vscode.Tab & { input: vscode.TabInputText } => tab.input instanceof vscode.TabInputText)
+			.map(tab => vscode.workspace.openTextDocument(tab.input.uri))
 	);
 }
 
@@ -52,8 +87,12 @@ suite('Playground Panel Test Suite', () => {
 			`the result panel never showed the evaluated defaults (last saw ${JSON.stringify(document.getText())})`
 		);
 
-		// ...and one the user cannot edit into something the expression never produced
-		const editor = await vscode.window.showTextDocument(document, { preview: false });
+		// ...and one the user cannot edit into something the expression never
+		// produced. Shown in its own column so the layout is left as it was.
+		const editor = await vscode.window.showTextDocument(document, {
+			viewColumn: RESULT_COLUMN,
+			preview: false
+		});
 		await editor.edit(builder => {
 			builder.insert(new vscode.Position(0, 0), 'tampered');
 		});
@@ -66,22 +105,14 @@ suite('Playground Panel Test Suite', () => {
 	test('renders a broken expression as a framed report, not as output', async function () {
 		this.timeout(30000);
 
-		const expressionDocument = vscode.workspace.textDocuments.find(
-			document => document.languageId === 'jsonata' && document.isUntitled
+		const expression = expressionDocument();
+		assert.ok(expression, 'the playground should have opened an expression editor');
+
+		await replaceText(expression, 'example[value > 5.value');
+
+		const document = await vscode.workspace.openTextDocument(
+			(resultTab()!.input as vscode.TabInputText).uri
 		);
-		assert.ok(expressionDocument, 'the playground should have opened an expression editor');
-
-		const editor = await vscode.window.showTextDocument(expressionDocument, { preview: false });
-		await editor.edit(builder => {
-			builder.replace(
-				new vscode.Range(0, 0, expressionDocument.lineCount, 0),
-				'example[value > 5.value'
-			);
-		});
-
-		const document = await vscode.workspace.openTextDocument(resultTab()!.input instanceof vscode.TabInputText
-			? (resultTab()!.input as vscode.TabInputText).uri
-			: vscode.Uri.parse(''));
 
 		await waitFor(
 			() => document.getText().startsWith('compilation error'),
@@ -103,9 +134,7 @@ suite('Playground Panel Test Suite', () => {
 		);
 
 		// Fixing the expression returns the panel to JSON output
-		await editor.edit(builder => {
-			builder.replace(new vscode.Range(0, 0, document.lineCount + 5, 0), 'example[value > 5].value');
-		});
+		await replaceText(expression, 'example[value > 5].value');
 
 		await waitFor(
 			() => document.getText() === DEFAULT_RESULT && document.languageId === 'json',
@@ -113,17 +142,32 @@ suite('Playground Panel Test Suite', () => {
 		);
 	});
 
-	test('lays the three panels out across three editor groups', async () => {
-		const groups = vscode.window.tabGroups.all;
-		assert.strictEqual(groups.length, 3, 'expected input, expression and result to each have a group');
-
-		const languages = await Promise.all(
-			openTabs()
-				.filter((tab): tab is vscode.Tab & { input: vscode.TabInputText } => tab.input instanceof vscode.TabInputText)
-				.map(async tab => (await vscode.workspace.openTextDocument(tab.input.uri)).languageId)
+	test('puts the input on the left, with the result above the expression on the right', async () => {
+		assert.strictEqual(
+			vscode.window.tabGroups.all.length,
+			3,
+			'expected input, result and expression to each have a group'
 		);
 
-		assert.ok(languages.includes('jsonata'), 'the expression editor should be open');
-		assert.ok(languages.includes('json'), 'the JSON input editor should be open');
+		const [input] = await documentsIn(INPUT_COLUMN);
+		assert.strictEqual(input.languageId, 'json', 'the JSON input belongs in the left column');
+
+		const [result] = await documentsIn(RESULT_COLUMN);
+		assert.strictEqual(result.uri.scheme, RESULT_SCHEME, 'the result belongs in the top-right column');
+
+		const [template] = await documentsIn(EXPRESSION_COLUMN);
+		assert.strictEqual(template.languageId, 'jsonata', 'the expression belongs in the bottom-right column');
+	});
+
+	test('registers a command for each source, so either can be re-pointed on its own', async () => {
+		const commands = await vscode.commands.getCommands(true);
+
+		for (const command of [
+			'jsonata-validator.selectPlaygroundSources',
+			'jsonata-validator.selectPlaygroundInputSource',
+			'jsonata-validator.selectPlaygroundTemplateSource'
+		]) {
+			assert.ok(commands.includes(command), `${command} is not registered`);
+		}
 	});
 });

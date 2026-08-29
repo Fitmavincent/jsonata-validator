@@ -4,6 +4,41 @@ All notable changes to the "jsonata-validator" extension will be documented in t
 
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
+## [1.6.1]
+
+### Fixed
+- **Source selection is reachable again**
+  ([#9](https://github.com/Fitmavincent/jsonata-validator/issues/9)): the
+  results webview used to carry two dropdowns naming which open editor fed the
+  JSON input and which fed the expression. Retiring the webview reduced that to
+  one unlabelled icon among five in the results title bar - easy to miss, and
+  showing nothing about what the sources currently were, which is most of what
+  a dropdown was doing. Both sources are now in the status bar while the
+  playground is open, each naming what it reads from, and each a click away
+  from being pointed somewhere else:
+
+  ```
+    {} sample-data.json      </> active-users-template.jsonata
+  ```
+
+  They are backed by a command apiece, so either source can be re-pointed on
+  its own from the command palette; **Select Sources** still walks both in
+  turn. Share and Import moved off the title bar into its `...` menu, leaving
+  Copy, Refresh and Select Sources as the buttons on it
+- **The playground's own two editors are no longer offered as sources.** They
+  were listed as `Untitled-1` and `Untitled-2` alongside the `Playground
+  editor` entry that already reaches them, so the same editor appeared twice
+- A test asserting the error report picked whichever untitled JSONata document
+  it found first, which after earlier suites was not the playground's own, so
+  it was passing or failing on test ordering rather than on the panel
+
+### Changed
+- **The result and the expression swap places.** The playground now opens as
+  JSON input on the left, the **result top right**, and the **expression bottom
+  right**. The output had been sitting furthest from the editor whose typing
+  changes it; it now sits directly above it, so a result moves under your eyes
+  as you type rather than in a panel you look away to check
+
 ## [1.6.0]
 
 ### Release numbering

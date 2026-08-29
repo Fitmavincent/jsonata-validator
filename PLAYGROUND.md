@@ -12,7 +12,8 @@ The JSONata Playground is an interactive environment for testing and experimenti
 - **Foldable results**: the Results panel is a read-only JSON editor, so objects and arrays collapse, sections select and copy cleanly, and the outline and Find work as they do anywhere else
 - **Tamper-proof output**: the Results panel cannot be edited, so what it shows is always what the expression produced
 - **Persistent state**: Content is maintained while the panel is open
-- **Three-panel layout**: JSON Input (Column 1), JSONata Expression (Column 2), Results (Column 3)
+- **Three-panel layout**: JSON Input (Column 1), Results (Column 2), JSONata Expression (Column 3)
+- **Editor tab selection**: either source can be pointed at any open editor, from the status bar
 
 ## How to Use
 
@@ -30,55 +31,44 @@ When you open the playground, VS Code will automatically arrange three panels fo
 ┌─────────────────┬─────────────────┐
 │ Column 1        │ Column 2        │
 │                 │                 │
-│ JSON INPUT      │ JSONATA         │
-│ (Full Height)   │ EXPRESSION      │
-│                 │ (Top Half)      │
-│ {               │                 │
-│   "products": [ │ products[       │
-│     {           │   price > 100   │
-│       "name":   │ ].{             │
-│       "price":  │   name: name,   │
-│     }           │   discounted:   │
-│   ]             │   price * 0.9   │
-│ }               │ }               │
+│ JSON INPUT      │ 📊 RESULTS      │
+│ (Full Height)   │ (Top Half)      │
 │                 │                 │
-│ ✅ AI Tools     │ ✅ AI Tools     │
-│ Available       │ Available       │
-│                 ├─────────────────┤
-│                 │ 📊 RESULTS      │
+│ {               │ [               │
+│   "products": [ │   {             │
+│     {           │     "name": "X" │
+│       "name":   │     "discounted"│
+│       "price":  │   }             │
+│     }           │ ]               │
+│   ]             │                 │
+│ }               │ Live Updates    │
+│                 │                 │
+│ ✅ AI Tools     ├─────────────────┤
+│ Available       │ Column 3        │
+│                 │                 │
+│                 │ JSONATA         │
+│                 │ EXPRESSION      │
 │                 │ (Bottom Half)   │
 │                 │                 │
-│                 │ [               │
-│                 │   {             │
-│                 │     "name": ... │
-│                 │     "discounted │
-│                 │   }             │
-│                 │ ]               │
+│                 │ products[       │
+│                 │   price > 100   │
+│                 │ ].{             │
+│                 │   name: name,   │
+│                 │   discounted:   │
+│                 │   price * 0.9   │
+│                 │ }               │
 │                 │                 │
-│                 │ Live Updates    │
-│                 └─────────────────┘
+│                 │ ✅ AI Tools     │
+│                 │ Available       │
+└─────────────────┴─────────────────┘
 ```
 
 **Key Benefits:**
 - **Simultaneous view**: All three panels are visible at the same time
-- **Instant feedback**: Changes in JSON Input or JSONata Expression panels immediately update Results
+- **Result above the expression that produced it**: the output moves under your
+  eyes as you type, rather than in a panel you have to look away to check
 - **AI tool access**: Full Copilot, Cline, and other AI extension support in input editors
 - **No tab switching**: Template and results are always visible together
-│                 │     "name": "X" │
-│                 │     "discounted"│
-│                 │   }             │
-│                 │ ]               │
-│                 │                 │
-│                 │ 📊 Real-time    │
-│                 │ Updates         │
-└─────────────────┴─────────────────┘
-```
-
-**Key Benefits of This Layout:**
-- **Instant Feedback**: See results immediately as you type in the JSONata expression
-- **No Tab Switching**: Template and results are always visible
-- **AI Tool Access**: Both input panels support Copilot, Cline, and other AI assistants
-- **Optimal Screen Usage**: Maximizes available screen real estate
 
 ### AI Tool Integration
 
@@ -102,7 +92,7 @@ When you open the playground, VS Code will automatically arrange three panels fo
    }
    ```
 
-2. **JSONata Expression Panel** (Column 2): Write your expression (with AI assistance!)
+2. **JSONata Expression Panel** (Column 3, bottom right): Write your expression (with AI assistance!)
    ```jsonata
    products[price > 100].{
      name: name,
@@ -111,7 +101,7 @@ When you open the playground, VS Code will automatically arrange three panels fo
    }
    ```
 
-3. **Results Panel** (Column 3, bottom right): See the output automatically, in a
+3. **Results Panel** (Column 2, top right): See the output automatically, in a
    read-only JSON editor you can fold, search and copy from
    ```json
    [
@@ -119,6 +109,29 @@ When you open the playground, VS Code will automatically arrange three panels fo
      {"name": "Phone", "discounted": 539.1, "category": "Electronics"}
    ]
    ```
+
+## Choosing Where Each Panel Reads From
+
+The playground does not have to read from its own two editors. Either source can
+be pointed at any editor you already have open, which is how you try one
+expression against several data files, or several expressions against one.
+
+Both sources sit in the status bar while the playground is open, naming what
+they currently read from:
+
+```
+  {} sample-data.json      </> active-users-template.jsonata
+```
+
+Click either one to pick a different editor; `Playground` means the panel the
+playground opened for you. The same choices are on the command palette as
+**Select JSONata Playground JSON Input Source** and **… Expression Source**, and
+the Results panel's title bar carries **Select Sources**, which walks both in
+turn.
+
+A chosen editor is live: typing in it re-evaluates the playground, exactly as
+typing in the playground's own panels does. Close the file and the source falls
+back to the playground's own editor rather than being left pointing at nothing.
 
 ## Error Handling
 
@@ -173,9 +186,13 @@ The playground handles both types of JSONata errors:
 | `jsonata-validator.openPlaygroundWithSelection` | Open playground with selected text as expression |
 | `jsonata-validator.copyPlaygroundResult` | Copy the current result to the clipboard |
 | `jsonata-validator.refreshPlaygroundResult` | Re-read every source and evaluate again |
-| `jsonata-validator.selectPlaygroundSources` | Choose which open editors feed the input and the expression |
+| `jsonata-validator.selectPlaygroundSources` | Choose which open editors feed the input and the expression, in turn |
+| `jsonata-validator.selectPlaygroundInputSource` | Choose which open editor feeds the JSON input |
+| `jsonata-validator.selectPlaygroundTemplateSource` | Choose which open editor feeds the expression |
 
-The last three are also buttons in the Results panel's title bar.
+Copy Result, Refresh and Select Sources are also buttons in the Results panel's
+title bar, with Share and Import behind its `...` menu. The two single-source
+commands are what the status bar entries click through to.
 
 ## Keyboard Shortcuts
 

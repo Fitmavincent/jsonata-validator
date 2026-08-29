@@ -1,12 +1,42 @@
 import * as vscode from 'vscode';
 import {
     PlaygroundSession,
+    PlaygroundSourceKind,
     PlaygroundState,
     DEFAULT_JSON_INPUT,
     DEFAULT_JSONATA_EXPRESSION
 } from './PlaygroundSession';
 import { PlaygroundEditorManager } from './PlaygroundEditorManager';
 import { PlaygroundResultDocument, RESULT_SCHEME } from './PlaygroundResultDocument';
+
+/**
+ * The three panels, in the arrangement the playground opens with: the input on
+ * the left, and the result above the expression that produces it on the right.
+ */
+const INPUT_COLUMN = vscode.ViewColumn.One;
+const RESULT_COLUMN = vscode.ViewColumn.Two;
+const EXPRESSION_COLUMN = vscode.ViewColumn.Three;
+
+/** The status bar entry each source is named and re-pointed by */
+const SOURCE_STATUS: Record<PlaygroundSourceKind, {
+    id: string;
+    icon: string;
+    subject: string;
+    command: string;
+}> = {
+    input: {
+        id: 'jsonataValidator.playgroundInputSource',
+        icon: '$(json)',
+        subject: 'JSON input',
+        command: 'jsonata-validator.selectPlaygroundInputSource'
+    },
+    template: {
+        id: 'jsonataValidator.playgroundTemplateSource',
+        icon: '$(file-code)',
+        subject: 'JSONata expression',
+        command: 'jsonata-validator.selectPlaygroundTemplateSource'
+    }
+};
 
 /**
  * Owns the three panels of the JSONata playground: the JSON input editor, the
@@ -20,6 +50,7 @@ export class PlaygroundPanel {
     private disposables: vscode.Disposable[] = [];
     private jsonInputEditor: vscode.TextEditor | undefined;
     private jsonataExpressionEditor: vscode.TextEditor | undefined;
+    private readonly sourceStatusItems = new Map<PlaygroundSourceKind, vscode.StatusBarItem>();
     private disposed = false;
 
     constructor(
@@ -30,10 +61,11 @@ export class PlaygroundPanel {
         this.editorManager = new PlaygroundEditorManager();
         this.session = new PlaygroundSession(this.resultDocument, this.context);
         this.session.setOwnSourceReaders(
-            () => this.editorManager.jsonInputContent,
-            () => this.editorManager.jsonataExpressionContent
+            () => this.editorManager.inputDocument,
+            () => this.editorManager.expressionDocument
         );
 
+        this.createSourceStatusItems();
         this.setupEventHandlers();
         this.initializePlayground();
     }
@@ -44,9 +76,17 @@ export class PlaygroundPanel {
             // into its final group, rather than split into place afterwards
             await this.applyLayout();
 
-            this.jsonInputEditor = await this.editorManager.createJsonInputEditor(DEFAULT_JSON_INPUT);
-            this.jsonataExpressionEditor = await this.editorManager.createJsonataExpressionEditor(DEFAULT_JSONATA_EXPRESSION);
-            await this.resultDocument.show(vscode.ViewColumn.Three);
+            // Opened in layout order, and the expression last, so the caret ends
+            // up in the editor the playground is actually driven from
+            this.jsonInputEditor = await this.editorManager.createJsonInputEditor(
+                DEFAULT_JSON_INPUT,
+                INPUT_COLUMN
+            );
+            await this.resultDocument.show(RESULT_COLUMN);
+            this.jsonataExpressionEditor = await this.editorManager.createJsonataExpressionEditor(
+                DEFAULT_JSONATA_EXPRESSION,
+                EXPRESSION_COLUMN
+            );
             this.watchForResultTabClose();
 
             this.editorManager.setOnJsonInputChange((content) => {
@@ -62,15 +102,6 @@ export class PlaygroundPanel {
             // The session evaluated the defaults when it was constructed; this
             // picks up whatever else the user already had open
             this.session.updateAvailableEditors();
-
-            // Leave the caret in the expression editor, which is where the
-            // playground is actually driven from
-            if (this.jsonataExpressionEditor) {
-                await vscode.window.showTextDocument(this.jsonataExpressionEditor.document, {
-                    viewColumn: vscode.ViewColumn.Two,
-                    preserveFocus: false
-                });
-            }
         } catch (error) {
             console.error('Failed to initialize playground:', error);
             vscode.window.showErrorMessage('Failed to initialize JSONata playground');
@@ -78,8 +109,8 @@ export class PlaygroundPanel {
     }
 
     /**
-     * Lays the editor area out as input on the left, with the expression above
-     * the result on the right. Setting the grid explicitly keeps the columns
+     * Lays the editor area out as input on the left, with the result above the
+     * expression on the right. Setting the grid explicitly keeps the columns
      * stable, so ViewColumn.Three is reliably the bottom-right panel.
      */
     private async applyLayout(): Promise<void> {
@@ -104,7 +135,50 @@ export class PlaygroundPanel {
         }
     }
 
+    /**
+     * Puts both sources in the status bar. The results panel used to carry them
+     * as a pair of dropdowns; a read-only editor has nowhere to hang those, and
+     * the status bar is where VS Code keeps this kind of "what am I pointed at,
+     * click to change it" control anyway.
+     */
+    private createSourceStatusItems(): void {
+        // Higher priority sits further left, so the input leads the expression
+        let priority = 100;
+
+        for (const kind of Object.keys(SOURCE_STATUS) as PlaygroundSourceKind[]) {
+            const entry = SOURCE_STATUS[kind];
+            const item = vscode.window.createStatusBarItem(
+                entry.id,
+                vscode.StatusBarAlignment.Left,
+                priority--
+            );
+            item.name = `JSONata playground: ${entry.subject} source`;
+            item.command = entry.command;
+            item.show();
+            this.sourceStatusItems.set(kind, item);
+        }
+
+        this.updateSourceStatusItems();
+    }
+
+    private updateSourceStatusItems(): void {
+        const labels = this.session.sourceLabels;
+
+        for (const [kind, item] of this.sourceStatusItems) {
+            const entry = SOURCE_STATUS[kind];
+            item.text = `${entry.icon} ${labels[kind]}`;
+            item.tooltip = new vscode.MarkdownString(
+                `JSONata playground &mdash; **${entry.subject}** is read from \`${labels[kind]}\`.\n\n` +
+                'Click to read it from another open editor instead.'
+            );
+        }
+    }
+
     private setupEventHandlers(): void {
+        this.disposables.push(
+            this.session.onDidChangeSources(() => this.updateSourceStatusItems())
+        );
+
         // Re-evaluate when the reader comes back to the result panel, so a
         // change made while it was hidden is never left showing stale output
         this.disposables.push(
@@ -168,7 +242,7 @@ export class PlaygroundPanel {
      * Brings the playground's panels back into view
      */
     public reveal(): void {
-        this.resultDocument.show(vscode.ViewColumn.Three).then(undefined, error => {
+        this.resultDocument.show(RESULT_COLUMN).then(undefined, error => {
             console.warn('Error revealing playground result panel:', error);
         });
     }
@@ -181,6 +255,11 @@ export class PlaygroundPanel {
     /** Asks which open editors should feed the input and the expression */
     public async pickSources(): Promise<void> {
         await this.session.pickSources();
+    }
+
+    /** Asks which open editor should feed one of the two sources */
+    public async pickSource(kind: PlaygroundSourceKind): Promise<void> {
+        await this.session.pickSource(kind);
     }
 
     /** Copies the current result to the clipboard */
@@ -196,6 +275,9 @@ export class PlaygroundPanel {
             return;
         }
         this.disposed = true;
+
+        this.sourceStatusItems.forEach(item => item.dispose());
+        this.sourceStatusItems.clear();
 
         this.session.dispose();
         this.editorManager.dispose();
