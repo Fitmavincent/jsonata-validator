@@ -100,14 +100,19 @@ suite('Playground Sources Test Suite', () => {
 		assert.ok(!offered.includes(ownExpression.uri.toString()), 'the playground expression must not be listed');
 	});
 
-	test('names the playground until a source is pointed at a file', () => {
-		assert.deepStrictEqual(session.sourceLabels, { input: 'Playground', template: 'Playground' });
+	test('reads from the playground until a source is pointed at a file', () => {
+		assert.strictEqual(session.currentState.selectedJsonInputEditor, null);
+		assert.strictEqual(session.currentState.selectedTemplateEditor, null);
 
 		session.updateAvailableEditors();
 		session.selectSource('input', fileId);
 
-		assert.strictEqual(session.sourceLabels.input, 'other-input.json');
-		assert.strictEqual(session.sourceLabels.template, 'Playground', 'the expression source is untouched');
+		assert.strictEqual(session.currentState.selectedJsonInputEditor, fileId);
+		assert.strictEqual(
+			session.currentState.selectedTemplateEditor,
+			null,
+			'the expression source is untouched'
+		);
 	});
 
 	test('evaluates against the file the input source points at', async () => {
@@ -161,6 +166,5 @@ suite('Playground Sources Test Suite', () => {
 			() => session.currentState.selectedJsonInputEditor === null && result.text === DEFAULT_RESULT,
 			() => `the source never fell back (last saw ${JSON.stringify(result.text)})`
 		);
-		assert.strictEqual(session.sourceLabels.input, 'Playground');
 	});
 });

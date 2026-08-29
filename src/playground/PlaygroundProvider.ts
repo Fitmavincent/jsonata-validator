@@ -2,9 +2,7 @@ import * as vscode from 'vscode';
 import { PlaygroundPanel } from './PlaygroundPanel';
 import { ExportService } from '../share/ExportService';
 import { ImportService } from '../share/ImportService';
-
-/** Gates the sources view, which only means anything while a playground is open */
-const PLAYGROUND_OPEN_CONTEXT = 'jsonataValidator.playgroundOpen';
+import { PLAYGROUND_OPEN_CONTEXT } from './playgroundViews';
 
 /**
  * Provider class that manages the JSONata playground functionality

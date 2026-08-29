@@ -13,7 +13,7 @@ The JSONata Playground is an interactive environment for testing and experimenti
 - **Tamper-proof output**: the Results panel cannot be edited, so what it shows is always what the expression produced
 - **Persistent state**: Content is maintained while the panel is open
 - **Three-panel layout**: JSON Input (Column 1), Results (Column 2), JSONata Expression (Column 3)
-- **Editor tab selection**: either source can be pointed at any open editor, from the Explorer or the status bar
+- **Editor tab selection**: either source can be pointed at any open editor, from a pair of dropdowns
 
 ## How to Use
 
@@ -116,22 +116,24 @@ The playground does not have to read from its own two editors. Either source can
 be pointed at any editor you already have open, which is how you try one
 expression against several data files, or several expressions against one.
 
-A **JSONata Playground** section appears in the Explorer for as long as the
-playground is open, with a row per source naming what it currently reads from:
+A **JSONata Playground** panel opens with the playground and closes with it,
+carrying the two source dropdowns:
 
 ```
-JSONATA PLAYGROUND
-  {}  JSON input            sample-data.json
-  </> JSONata expression    Playground
+JSON INPUT SOURCE                JSONATA TEMPLATE SOURCE
+[ sample-data.json (json)   v ]  [ Default (Internal Editor)  v ]   Refresh   Share  Import
 ```
 
-Click a row to pick a different editor; `Playground` means the panel the
-playground opened for you. The section's title bar carries **Select Sources**,
-which walks both in turn, and **Refresh**.
+Both list the editors open as tabs, as `name (language)` with a `●` for
+unsaved. `Default (Internal Editor)` points a source back at the panel the
+playground opened for you.
 
-The same two sources are repeated in the status bar, for when the sidebar is
-closed, and both are on the command palette as **Select JSONata Playground JSON
-Input Source** and **… Expression Source**.
+The bar lives in a view of its own because the Results panel is a read-only
+editor and has nowhere to hang a dropdown; drag it to the sidebar if you would
+rather have it there. The same two choices are on the command palette as
+**Select JSONata Playground JSON Input Source** and **… Expression Source**,
+and the Results panel's title bar carries **Select Sources**, which walks both
+in turn.
 
 A chosen editor is live: typing in it re-evaluates the playground, exactly as
 typing in the playground's own panels does. Close the file and the source falls
@@ -222,7 +224,8 @@ src/
 │   ├── PlaygroundEditorManager.ts     # The two input editors
 │   ├── PlaygroundSession.ts           # Evaluation and error reporting
 │   ├── PlaygroundResultDocument.ts    # Read-only result document
-│   ├── PlaygroundSourcesView.ts       # The two source rows in the Explorer
+│   ├── PlaygroundSourcesView.ts       # The two source dropdowns
+│   ├── playgroundViews.ts             # View ids shared with package.json
 │   └── errorReport.ts                 # Source-framed error rendering
 ├── validation/
 │   ├── ValidationService.ts      # Validation logic

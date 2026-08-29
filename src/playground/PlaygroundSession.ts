@@ -26,7 +26,7 @@ export interface PlaygroundState {
     selectedTemplateEditor: string | null;
 }
 
-interface EditorInfo {
+export interface EditorInfo {
     id: string;
     fileName: string;
     language: string;
@@ -41,9 +41,6 @@ const SOURCE_TITLES: Record<PlaygroundSourceKind, string> = {
     input: 'JSON input source',
     template: 'JSONata expression source'
 };
-
-/** Stands in for a source that is read from the playground's own editor */
-const OWN_EDITOR_LABEL = 'Playground';
 
 /**
  * Digs the offending position out of a JSON.parse message so the report can
@@ -191,28 +188,10 @@ export class PlaygroundSession {
         }
     }
 
-    /**
-     * What each source currently reads from, as the status bar names it: the
-     * chosen file, or the playground's own editor when nothing is chosen.
-     */
-    public get sourceLabels(): Record<PlaygroundSourceKind, string> {
-        return {
-            input: this.labelFor(this.selectionFor('input')),
-            template: this.labelFor(this.selectionFor('template'))
-        };
-    }
-
     private selectionFor(kind: PlaygroundSourceKind): string | null {
         return kind === 'input'
             ? this.state.selectedJsonInputEditor
             : this.state.selectedTemplateEditor;
-    }
-
-    private labelFor(editorId: string | null): string {
-        const selected = editorId
-            ? this.state.availableEditors.find(editor => editor.id === editorId)
-            : undefined;
-        return selected ? selected.fileName : OWN_EDITOR_LABEL;
     }
 
     /**

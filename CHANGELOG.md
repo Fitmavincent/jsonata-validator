@@ -15,23 +15,24 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
   showing nothing about what the sources currently were, which is most of what
   a dropdown was doing.
 
-  A **JSONata Playground** section now appears in the Explorer for as long as
-  the playground is open, with a row per source naming what it reads from:
+  The bar is back, as it was, in a **JSONata Playground** panel that opens
+  with the playground and closes with it:
 
   ```
-  JSONATA PLAYGROUND
-    {}  JSON input            sample-data.json
-    </> JSONata expression    Playground
+  JSON INPUT SOURCE                JSONATA TEMPLATE SOURCE
+  [ sample-data.json (json)   v ]  [ Default (Internal Editor)  v ]   Refresh   Share  Import
   ```
 
-  Clicking a row opens the picker for that source alone; the section's title
-  bar carries **Select Sources**, which walks both, and **Refresh**. The same
-  two sources are repeated in the status bar for when the sidebar is closed.
+  Both dropdowns list the editors open as tabs, as `name (language)` with a
+  `●` for unsaved, and `Default (Internal Editor)` points a source back at the
+  playground's own panel. Picking an entry re-evaluates immediately, and
+  editing the chosen file re-evaluates as you type.
 
-  Each source has a command of its own, so either can be re-pointed from the
-  command palette without walking the pair. Share and Import moved off the
-  results title bar into its `...` menu, leaving Copy, Refresh and Select
-  Sources as the buttons on it
+  It lives in a view of its own because the results panel is a read-only
+  editor now and has nowhere to hang a dropdown. Drag it to the sidebar if you
+  would rather have it there. Each source also has a command of its own, so
+  either can be re-pointed from the palette without walking the pair, and
+  Share and Import moved off the results title bar into its `...` menu
 - **The playground's own two editors are no longer offered as sources.** They
   were listed as `Untitled-1` and `Untitled-2` alongside the `Playground
   editor` entry that already reaches them, so the same editor appeared twice

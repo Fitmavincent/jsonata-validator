@@ -8,6 +8,7 @@ import {
 } from './PlaygroundSession';
 import { PlaygroundEditorManager } from './PlaygroundEditorManager';
 import { PlaygroundResultDocument, RESULT_SCHEME } from './PlaygroundResultDocument';
+import { SOURCES_CONTAINER_FOCUS } from './playgroundViews';
 
 /**
  * The three panels, in the arrangement the playground opens with: the input on
@@ -16,30 +17,6 @@ import { PlaygroundResultDocument, RESULT_SCHEME } from './PlaygroundResultDocum
 const INPUT_COLUMN = vscode.ViewColumn.One;
 const RESULT_COLUMN = vscode.ViewColumn.Two;
 const EXPRESSION_COLUMN = vscode.ViewColumn.Three;
-
-/** The status bar entry each source is named and re-pointed by */
-const SOURCE_STATUS: Record<PlaygroundSourceKind, {
-    id: string;
-    icon: string;
-    short: string;
-    subject: string;
-    command: string;
-}> = {
-    input: {
-        id: 'jsonataValidator.playgroundInputSource',
-        icon: '$(json)',
-        short: 'Input',
-        subject: 'JSON input',
-        command: 'jsonata-validator.selectPlaygroundInputSource'
-    },
-    template: {
-        id: 'jsonataValidator.playgroundTemplateSource',
-        icon: '$(file-code)',
-        short: 'Template',
-        subject: 'JSONata expression',
-        command: 'jsonata-validator.selectPlaygroundTemplateSource'
-    }
-};
 
 /**
  * Owns the three panels of the JSONata playground: the JSON input editor, the
@@ -53,7 +30,6 @@ export class PlaygroundPanel {
     private disposables: vscode.Disposable[] = [];
     private jsonInputEditor: vscode.TextEditor | undefined;
     private jsonataExpressionEditor: vscode.TextEditor | undefined;
-    private readonly sourceStatusItems = new Map<PlaygroundSourceKind, vscode.StatusBarItem>();
     private disposed = false;
 
     constructor(
@@ -68,7 +44,6 @@ export class PlaygroundPanel {
             () => this.editorManager.expressionDocument
         );
 
-        this.createSourceStatusItems();
         this.setupEventHandlers();
         this.initializePlayground();
     }
@@ -79,10 +54,10 @@ export class PlaygroundPanel {
             // into its final group, rather than split into place afterwards
             await this.applyLayout();
 
-            // Bring the Explorer out so the sources view is on screen with the
-            // panels rather than waiting to be found. It runs before the
-            // editors open, and the expression editor takes focus after it,
-            // so the caret still ends up where the playground is driven from.
+            // Bring the source bar out so it is on screen with the panels
+            // rather than waiting to be found. It runs before the editors open,
+            // and the expression editor takes focus after it, so the caret
+            // still ends up where the playground is driven from.
             await this.revealSourcesView();
 
             // Opened in layout order, and the expression last, so the caret ends
@@ -133,12 +108,12 @@ export class PlaygroundPanel {
     }
 
     /**
-     * Shows the Explorer, which is where the two source rows live. Never fatal:
-     * the playground is still usable if the sidebar refuses to open.
+     * Opens the panel the two source dropdowns live in. Never fatal: the
+     * playground is still usable if the panel refuses to open.
      */
     private async revealSourcesView(): Promise<void> {
         try {
-            await vscode.commands.executeCommand('workbench.view.explorer');
+            await vscode.commands.executeCommand(SOURCES_CONTAINER_FOCUS);
         } catch (error) {
             console.warn('Error revealing the playground sources view:', error);
         }
@@ -156,50 +131,7 @@ export class PlaygroundPanel {
         }
     }
 
-    /**
-     * Puts both sources in the status bar. The results panel used to carry them
-     * as a pair of dropdowns; a read-only editor has nowhere to hang those, and
-     * the status bar is where VS Code keeps this kind of "what am I pointed at,
-     * click to change it" control anyway.
-     */
-    private createSourceStatusItems(): void {
-        // Higher priority sits further left, so the input leads the expression
-        let priority = 100;
-
-        for (const kind of Object.keys(SOURCE_STATUS) as PlaygroundSourceKind[]) {
-            const entry = SOURCE_STATUS[kind];
-            const item = vscode.window.createStatusBarItem(
-                entry.id,
-                vscode.StatusBarAlignment.Left,
-                priority--
-            );
-            item.name = `JSONata playground: ${entry.subject} source`;
-            item.command = entry.command;
-            item.show();
-            this.sourceStatusItems.set(kind, item);
-        }
-
-        this.updateSourceStatusItems();
-    }
-
-    private updateSourceStatusItems(): void {
-        const labels = this.session.sourceLabels;
-
-        for (const [kind, item] of this.sourceStatusItems) {
-            const entry = SOURCE_STATUS[kind];
-            item.text = `${entry.icon} ${entry.short}: ${labels[kind]}`;
-            item.tooltip = new vscode.MarkdownString(
-                `JSONata playground &mdash; **${entry.subject}** is read from \`${labels[kind]}\`.\n\n` +
-                'Click to read it from another open editor instead.'
-            );
-        }
-    }
-
     private setupEventHandlers(): void {
-        this.disposables.push(
-            this.session.onDidChangeSources(() => this.updateSourceStatusItems())
-        );
-
         // Re-evaluate when the reader comes back to the result panel, so a
         // change made while it was hidden is never left showing stale output
         this.disposables.push(
@@ -283,9 +215,9 @@ export class PlaygroundPanel {
         await this.session.pickSource(kind);
     }
 
-    /** What each source currently reads from, for the sources view to render */
-    public get sourceLabels(): Record<PlaygroundSourceKind, string> {
-        return this.session.sourceLabels;
+    /** Points one source at an open editor, which is what the dropdowns do */
+    public selectSource(kind: PlaygroundSourceKind, editorId: string | null): void {
+        this.session.selectSource(kind, editorId);
     }
 
     /** Fires when either source, or the list of editors to choose from, changes */
@@ -306,9 +238,6 @@ export class PlaygroundPanel {
             return;
         }
         this.disposed = true;
-
-        this.sourceStatusItems.forEach(item => item.dispose());
-        this.sourceStatusItems.clear();
 
         this.session.dispose();
         this.editorManager.dispose();

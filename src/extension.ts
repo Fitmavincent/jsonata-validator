@@ -35,8 +35,9 @@ export function activate(context: vscode.ExtensionContext) {
 	// Initialize playground provider
 	const playgroundProvider = PlaygroundProvider.getInstance(context);
 
-	// The two source selections, shown in the Explorer while a playground is open
+	// The two source dropdowns, shown in their own panel while a playground is open
 	const playgroundSourcesView = new PlaygroundSourcesView(playgroundProvider);
+	playgroundSourcesView.register();
 
 	// Register commands
 	const validateDocumentCommand = vscode.commands.registerCommand('jsonata-validator.validateDocument', () => {
